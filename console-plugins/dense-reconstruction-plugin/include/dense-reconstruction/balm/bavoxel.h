@@ -28,9 +28,12 @@ DECLARE_double(balm_max_eigen_value);
 int win_size;
 
 class OctoTreeNode;
+// OctoTree to subdivide space to build point clusters out of cubes of the OctoTree
 typedef std::unordered_map<resources::VoxelPosition, OctoTreeNode*> SurfaceMap;
 
+
 class PointCluster {
+  // handle point clustering
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -397,15 +400,19 @@ class BALM2 {
  public:
   BALM2() {}
 
+  // subdivides the thread for quicker computation
   double divide_thread(
       const aslam::TransformationVector& x_stats, VoxHess& voxhess,
       Eigen::MatrixXd& Hess, Eigen::VectorXd& JacT) {
+    // Computes the Hessian, Jacobian (transposed), and the residual.
+    // Residual, the Hessian, and the Jacobi transposed is computed using acc_evaluate2, which works on different threads
     size_t thd_num = common::getNumHardwareThreads();
     Hess.setZero();
     JacT.setZero();
     PLM(-1) hessians(thd_num);
     PLV(-1) jacobins(thd_num);
 
+    // adapt the size of the hessians for
     for (size_t i = 0; i < thd_num; ++i) {
       hessians[i].resize(6 * win_size, 6 * win_size);
       jacobins[i].resize(6 * win_size);
@@ -426,6 +433,8 @@ class BALM2 {
     }
 
     double residual = 0;
+
+    // combine the Jacobian Hessian and residuals
     for (size_t i = 0; i < thd_num; ++i) {
       mthreads[i]->join();
       Hess += hessians[i];
@@ -439,6 +448,9 @@ class BALM2 {
 
   double only_residual(
       const aslam::TransformationVector& x_stats, VoxHess& voxhess) {
+    // compute only the residual given the optimal update.
+    // Computation of the Jacobi transpose and Hessian is left to the start of the next iteration,
+    // since it is not guaranteed that the updated poses are an improvement to the previous iteration
     double residual = 0;
 
     voxhess.evaluate_only_residual(x_stats, residual);
@@ -446,55 +458,123 @@ class BALM2 {
   }
 
   void damping_iter(aslam::TransformationVector& x_stats, VoxHess& voxhess) {
+    // This function contains optimization loop of BALM.
+    // Inputs: a pointer to the initial LiDAR pose estimate coming from VIO.
+    // The LiDAR poses are placed at the integrated IMU locations from the previous camera pose for the LiDAR scan timestamp
+    // Question: are the LiDAR scans undistorted?
+
+    // u is the damping parameter used in the LM algorithm
+    // v is a parameter dictating the update rate of u in case of unsuccessful value updates
     double u = 0.01, v = 2;
+
+    // define D, a diagonal version of the Hessian used in the value update
+    // define the Hessian, Jacobi Transposed, and the update dxi
     Eigen::MatrixXd D(6 * win_size, 6 * win_size),
         Hess(6 * win_size, 6 * win_size);
     Eigen::VectorXd JacT(6 * win_size), dxi(6 * win_size);
 
     D.setIdentity();
+    // initialize the current (residual1) and future (residual2) cost and the difference between the two (q)
     double residual1, residual2, q;
+    // introduce a boolean variable which indicates whether or not the hessian must be calculated or if it was calculated previously (for computational simplicity)
     bool is_calc_hess = true;
+    // initialize the next pose vector as x_stats_temp
     aslam::TransformationVector x_stats_temp = x_stats;
 
+    // optimization loop. 10 iterations
     for (int i = 0; i < 10; i++) {
       if (is_calc_hess) {
+        // only calculate new residual if the residual1 > residual2
+        // --> if the iteration lead to an improved result, otherwise, use previous result for x_stat and residual_1
+        // This calculates the Hessian, the Jacobi transpose and the residual for the pose vector x_stats
         residual1 = divide_thread(x_stats, voxhess, Hess, JacT);
       }
 
       D.diagonal() = Hess.diagonal();
+      // calculate optimal update step: dxi = -(H - u * I)@Jac.T
+      // Question: why D instead of I?
       dxi = (Hess + u * D).ldlt().solve(-JacT);
 
+      // get from the update dxi to the newly computed pose vector
       for (int j = 0; j < win_size; j++) {
         x_stats_temp[j].getRotation() =
             x_stats[j].getRotation() *
             aslam::Quaternion::exp(dxi.block<3, 1>(6 * j, 0));
+        //TODO:
+        //  Implement the projection logic. The idea is to limit the difference between pose j-1 and j.
+        //  The problem is decomposed in a rotational part and a linear part. The maximum angular rate is given as v_max_ang and the maximum average linear velocity as v_max_lin
+        //  Rotational Steps:
+        //    1. define the difference in orientation between j-1 and j as del_ang (open)
+        //    2. extract the time step between the LiDAR keyframes del_time (open)
+        //    3. if the angular rate del_ang/del_time is larger than v_max_ang, continue (open)
+        //    4. define an expression for del_ang(x_stats_temp[j-1], x_stats[j], dxi) <= v_max_ang * del_time.
+        //        dxi should be converted to angle axis and the orientation of the update conserved
+        //        but the angle of the update limited to satisfy the inequality. (open)
+        //    5. set dxi to the truncated value, compute x_stats_temp[j] for the nex dxi (open)
+
         x_stats_temp[j].getPosition() =
             x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
+        //TODO:
+        //  Linear Steps:
+        //    1. define the difference in position between j-1 and j as del_pos(x_stats_temp[j-1], x_stats_temp[j]) (open)
+        //    2. if the linear rate del_pos/del_time is larger than v_max_lin, continue (open)
+        //    3. define an expression for del_pos(x_stats_temp[j-1], x_stats[j], dxi) <= v_max_lin * del_time. solve for magnitude(dxi). (open)
+        //    4. set dxi to the truncated value, compute x_stats_temp[j] for the nex dxi (open)
+        if (j != 0){
+          // Step 1
+          double del_pos = x_stats_temp[j].getPosition() - x_stats_temp[j-1].getPosition();
+          double del_pos_mag = del_pos.magnitude; // TODO: Fix
+          // Step 2
+          if (del_pos_mag/del_time >= v_max_lin) {
+            // Step 3
+            v_max_lin * del_time = (x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0)/dxi.magnitude * corrected_magnitude - x_stats_temp[j-1].getPosition()).magnitude;
+            corrected_magnitude = ...;
+            // Step 4
+            dxi = dxi.block<3, 1>(6 * j + 3, 0)/dxi.magnitude * corrected_magnitude;
+            x_stats_temp[j].getPosition() =
+                x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
+          }
+        }
       }
+
+      // compute q1 = 0.5 * dxi * (u * dxi - JacT)
+      // This quantity is needed for the update of u if the dxi is a "good" increment
+      // Question: why do we compute this outside of if?, Why is the D in there?
       double q1 = 0.5 * dxi.dot(u * D * dxi - JacT);
 
+      // Compute the residual associated with the new pose vector
       residual2 = only_residual(x_stats_temp, voxhess);
 
+      // Compute by "how much" the new residual is better than the previous guess
       q = (residual1 - residual2);
       printf(
           "iter%d: (%lf %lf) u: %lf v: %.1lf q: %.3lf %lf %lf\n", i, residual1,
           residual2, u, v, q / q1, q1, q);
 
       if (q > 0) {
+        // if there is an improvement in the residual, set the updated state as the current best guess
         x_stats = x_stats_temp;
 
+        // update parameters
         q = q / q1;
         v = 2;
         q = 1 - pow(2 * q - 1, 3);
         constexpr double kOneThird = 1.0 / 3.0;
+        // u = u * max(1/3, 1-(2*q/q1-1)^3)
         u *= (q < kOneThird ? kOneThird : q);
+        // hessian must be re-computed at the start of the next iteration
         is_calc_hess = true;
+
       } else {
+        // update parameters for more robustness in LM optimization
         u = u * v;
         v = 2 * v;
+        // no state update, previous Hessian + JacT are up to date
         is_calc_hess = false;
       }
 
+      // check if there if the optimization has converged
+      // Question: why like this?
       if (fabs(residual1 - residual2) / residual1 < 1e-6)
         break;
     }
