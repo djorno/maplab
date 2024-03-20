@@ -871,7 +871,14 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
 
         // Optimize the planes together
         BALM2 opt_lsv;
-        opt_lsv.damping_iter(poses_G_S, voxhess);
+        // copy variables to optimize once with constraints and once without
+        aslam::TransformationVector copy_poses_G_S = poses_G_S;
+        VoxHess copy_voxhess = voxhess;
+        printf("Unconstrained Optimization:\n");
+        opt_lsv.damping_iter(poses_G_S, voxhess, false);
+
+        printf("Constrained Optimization:\n");
+        opt_lsv.damping_iter(copy_poses_G_S, copy_voxhess, true);
 
 
         // Free up the memory
@@ -885,6 +892,9 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         publishMapFromBALM(
             poses_G_S, pointclouds, "balm_path_after",
             visualization::kCommonGreen, "balm_map_after");
+        publishMapFromBALM(
+            copy_poses_G_S, pointclouds, "balm_path_after_constrained", visualization::kCommonDarkGreen, "balm_map_after_constrained"
+        );
 
         return common::kSuccess;
       },
