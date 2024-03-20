@@ -7,6 +7,7 @@
 #include <malloc.h>
 #include <string>
 #include <vector>
+#include <cmath>
 
 #include <aslam/common/timer.h>
 #include <console-common/console.h>

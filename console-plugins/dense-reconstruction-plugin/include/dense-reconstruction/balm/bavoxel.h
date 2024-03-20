@@ -10,6 +10,7 @@
 
 #include <thread>
 #include <vector>
+#include <cmath>
 
 #define PLM(a)                     \
   std::vector<                     \
@@ -465,7 +466,7 @@ class BALM2 {
 
     // u is the damping parameter used in the LM algorithm
     // v is a parameter dictating the update rate of u in case of unsuccessful value updates
-    double u = 0.01, v = 2;
+    double u = 0.01, v = 2, v_max_lin = 10, v_max_ang = 0.5, del_time = 0.1;
 
     // define D, a diagonal version of the Hessian used in the value update
     // define the Hessian, Jacobi Transposed, and the update dxi
@@ -523,14 +524,21 @@ class BALM2 {
         if (j != 0){
           // Step 1
           double del_pos = x_stats_temp[j].getPosition() - x_stats_temp[j-1].getPosition();
-          double del_pos_mag = del_pos.magnitude; // TODO: Fix
+          double del_pos_mag = del_pos.norm();
           // Step 2
           if (del_pos_mag/del_time >= v_max_lin) {
             // Step 3
-            v_max_lin * del_time = (x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0)/dxi.magnitude * corrected_magnitude - x_stats_temp[j-1].getPosition()).magnitude;
-            corrected_magnitude = ...;
+            double del_pos_mag_max = v_max_lin * del_time;
+            del_pos_plus = x_stats[j].getPosition() - x_stats_temp[j-1].getPosition();
+            del_pos_bet = dxi.block<3, 1>(6 * j + 3, 0);
+
+            m = -0.5*sqrt(4* std::pow(del_pos_plus.transpose()*del_pos_bet, 2) - \
+                4*(-std::pow(del_pos_mag_max,2) + std::pow(del_pos_plus.transpose()*del_pos_plus,2)) * \
+                std::pow(del_pos_bet.norm(),2)) + del_pos_plus.transpose()*del_pos_bet / \
+                std::pow(del_pos_bet.norm(),2);
+
             // Step 4
-            dxi = dxi.block<3, 1>(6 * j + 3, 0)/dxi.magnitude * corrected_magnitude;
+            dxi = dxi.block<3, 1>(6 * j + 3, 0)*m;
             x_stats_temp[j].getPosition() =
                 x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
           }
