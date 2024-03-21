@@ -488,8 +488,7 @@ class BALM2 {
     for (int i = 0; i < 10; i++) {
       if (is_calc_hess) {
         // only calculate new residual if the residual1 > residual2
-        // --> if the iteration lead to an improved result, otherwise, use previous result for x_stat and residual_1
-        // This calculates the Hessian, the Jacobi transpose and the residual for the pose vector x_stats
+        // --> if the iteration lead to an improved result, otherwise, use previous result for x_stat and residual_1 This calculates the Hessian, the Jacobi transpose and the residual for the pose vector x_stats
         residual1 = divide_thread(x_stats, voxhess, Hess, JacT);
       }
 
@@ -503,17 +502,15 @@ class BALM2 {
         x_stats_temp[j].getRotation() =
             x_stats[j].getRotation() *
             aslam::Quaternion::exp(dxi.block<3, 1>(6 * j, 0));
-        //TODO:
-        //  Implement the projection logic. The idea is to limit the difference between pose j-1 and j.
-        //  The problem is decomposed in a rotational part and a linear part. The maximum angular rate is given as v_max_ang and the maximum average linear velocity as v_max_lin
-        //  Rotational Steps:
-        //    1. define the difference in orientation between j-1 and j as del_ang (open)
-        //    2. extract the time step between the LiDAR keyframes del_time (open)
-        //    3. if the angular rate del_ang/del_time is larger than v_max_ang, continue (open)
-        //    4. define an expression for del_ang(x_stats_temp[j-1], x_stats[j], dxi) <= v_max_ang * del_time.
-        //        dxi should be converted to angle axis and the orientation of the update conserved
-        //        but the angle of the update limited to satisfy the inequality. (open)
-        //    5. set dxi to the truncated value, compute x_stats_temp[j] for the nex dxi (open)
+        // TODO:
+        //   Implement the projection logic. The idea is to limit the difference between pose j-1 and j. The problem is decomposed in a rotational part and a linear part. The maximum angular rate is given as v_max_ang and the maximum average linear velocity as v_max_lin
+        //   Rotational Steps:
+        //     1. define the difference in orientation between j-1 and j as del_ang (open)
+        //     2. extract the time step between the LiDAR keyframes del_time (open)
+        //     3. if the angular rate del_ang/del_time is larger than v_max_ang, continue (open)
+        //     4. define an expression for del_ang(x_stats_temp[j-1], x_stats[j], dxi) <= v_max_ang * del_time.
+        //         dxi should be converted to angle axis and the orientation of the update conserved but the angle of the update limited to satisfy the inequality. (open)
+        //     5. set dxi to the truncated value, compute x_stats_temp[j] for the nex dxi (open)
 
         x_stats_temp[j].getPosition() =
             x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
@@ -529,13 +526,29 @@ class BALM2 {
                 x_stats_temp[j].getPosition() -
                 x_stats_temp[j - 1].getPosition();
             double del_pos_mag = del_pos.norm();
-            double del_pos_previous = (x_stats[j].getPosition() - x_stats[j-1].getPosition()).norm();
+            double del_pos_previous =
+                (x_stats[j].getPosition() - x_stats[j - 1].getPosition())
+                    .norm();
             // Step 2
             if (del_pos_mag / del_time >= v_max_lin) {
               printf("entered at iteration %d\n", i);
-              printf("j = %d, del_pos_mag = %lf, del_pos_prev = %lf\n", j, del_pos_mag, del_pos_previous);
-              printf("old vector: pos j-1 = [%lf, %lf, %lf] || pos j = [%lf, %lf, %lf]\n", x_stats[j-1].getPosition()(0), x_stats[j-1].getPosition()(1), x_stats[j-1].getPosition()(2), x_stats[j].getPosition()(0), x_stats[j].getPosition()(1), x_stats[j].getPosition()(2));
-              printf("new vector: pos j-1 = [%lf, %lf, %lf] || pos j = [%lf, %lf, %lf]\n", x_stats_temp[j-1].getPosition()(0), x_stats_temp[j-1].getPosition()(1), x_stats_temp[j-1].getPosition()(2), x_stats_temp[j].getPosition()(0), x_stats_temp[j].getPosition()(1), x_stats_temp[j].getPosition()(2));
+              printf(
+                  "j = %d, del_pos_mag = %lf, del_pos_prev = %lf\n", j,
+                  del_pos_mag, del_pos_previous);
+              printf(
+                  "old vector: pos j-1 = [%lf, %lf, %lf] || pos j = [%lf, %lf, %lf]\n",
+                  x_stats[j - 1].getPosition()(0),
+                  x_stats[j - 1].getPosition()(1),
+                  x_stats[j - 1].getPosition()(2), x_stats[j].getPosition()(0),
+                  x_stats[j].getPosition()(1), x_stats[j].getPosition()(2));
+              printf(
+                  "new vector: pos j-1 = [%lf, %lf, %lf] || pos j = [%lf, %lf, %lf]\n",
+                  x_stats_temp[j - 1].getPosition()(0),
+                  x_stats_temp[j - 1].getPosition()(1),
+                  x_stats_temp[j - 1].getPosition()(2),
+                  x_stats_temp[j].getPosition()(0),
+                  x_stats_temp[j].getPosition()(1),
+                  x_stats_temp[j].getPosition()(2));
 
               // Step 3
               double del_pos_mag_max = v_max_lin * del_time;
@@ -546,47 +559,77 @@ class BALM2 {
 
               /// Debuggig
               double a = std::pow(del_pos_plus.transpose() * del_pos_bet, 2);
-              double b = -std::pow(del_pos_mag_max, 2) + std::pow(del_pos_plus.transpose() * del_pos_plus, 2);
+              double b = -std::pow(del_pos_mag_max, 2) +
+                         std::pow(del_pos_plus.transpose() * del_pos_plus, 2);
               double d = std::pow(del_pos_bet.norm(), 2);
               double e = std::pow(del_pos_plus.transpose() * del_pos_bet, 1);
               double f = std::pow(del_pos_bet.norm(), 2);
-              double c = std::pow(del_pos_plus.transpose() * del_pos_bet, 2) - std::pow(del_pos_bet.norm(), 2) * ( - std::pow(del_pos_mag_max, 2) + std::pow(del_pos_plus.norm(), 2));
+              double c = std::pow(del_pos_plus.transpose() * del_pos_bet, 2) -
+                         std::pow(del_pos_bet.norm(), 2) *
+                             (-std::pow(del_pos_mag_max, 2) +
+                              std::pow(del_pos_plus.norm(), 2));
 
               // printf("a = %lf, b = %lf, under the sqrt = %lf, d = %lf, e = %lf, f= %lf\n", a, b, c, d, e, f);
-              double m_plus = ( - del_pos_plus.transpose() * del_pos_bet + sqrt(std::pow(del_pos_plus.transpose() * del_pos_bet, 2) - std::pow(del_pos_bet.norm(), 2) * ( - std::pow(del_pos_mag_max, 2) + std::pow(del_pos_plus.norm(), 2)))) / std::pow(del_pos_bet.norm(), 2);
-              double m_minus = ( - del_pos_plus.transpose() * del_pos_bet - sqrt(std::pow(del_pos_plus.transpose() * del_pos_bet, 2) - std::pow(del_pos_bet.norm(), 2) * ( - std::pow(del_pos_mag_max, 2) + std::pow(del_pos_plus.norm(), 2)))) / std::pow(del_pos_bet.norm(), 2);
+              double m_plus =
+                  (-del_pos_plus.transpose() * del_pos_bet +
+                   sqrt(
+                       std::pow(del_pos_plus.transpose() * del_pos_bet, 2) -
+                       std::pow(del_pos_bet.norm(), 2) *
+                           (-std::pow(del_pos_mag_max, 2) +
+                            std::pow(del_pos_plus.norm(), 2)))) /
+                  std::pow(del_pos_bet.norm(), 2);
+              double m_minus =
+                  (-del_pos_plus.transpose() * del_pos_bet -
+                   sqrt(
+                       std::pow(del_pos_plus.transpose() * del_pos_bet, 2) -
+                       std::pow(del_pos_bet.norm(), 2) *
+                           (-std::pow(del_pos_mag_max, 2) +
+                            std::pow(del_pos_plus.norm(), 2)))) /
+                  std::pow(del_pos_bet.norm(), 2);
               double m;
-              if (m_plus >= 0 && m_plus <= 1){
+
+              if (m_plus >= 0 && m_plus <= 1) {
                 m = m_plus;
-              }
-              else if (m_minus >= 0 && m_minus <= 1) {
+              } else if (m_minus >= 0 && m_minus <= 1) {
                 m = m_minus;
-              }
-              else if (std::isnan(m_plus)){
+              } else if (std::isnan(m_plus)) {
                 printf("Something's very wrong!!\n");
+                printf(
+                    "dxi: [%lf, %lf, %lf]\n", del_pos_bet(0), del_pos_bet(1),
+                    del_pos_bet(2));
                 m = 1;
-              }
-              else {
+              } else {
                 printf("Something's wrong!!\n");
-                m = m_plus;
+                if (std::fabs(m_plus) > std::fabs(m_minus)) {
+                  m = m_minus;
+                } else {
+                  m = m_plus;
+                }
               }
-              
+
               printf("m = %lf\n", m);
-              double sanity_check = (del_pos_plus + dxi.block<3, 1>(6 * j + 3, 0) * m).norm();
+              double sanity_check =
+                  (del_pos_plus + dxi.block<3, 1>(6 * j + 3, 0) * m).norm();
               printf("sanity check = %lf\n", sanity_check);
               // Step 4
               dxi.block<3, 1>(6 * j + 3, 0) = dxi.block<3, 1>(6 * j + 3, 0) * m;
               x_stats_temp[j].getPosition() =
                   x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
-              printf("constrained vector: pos j-1 = [%lf, %lf, %lf] || pos j = [%lf, %lf, %lf]\n", x_stats_temp[j-1].getPosition()(0), x_stats_temp[j-1].getPosition()(1), x_stats_temp[j-1].getPosition()(2), x_stats_temp[j].getPosition()(0), x_stats_temp[j].getPosition()(1), x_stats_temp[j].getPosition()(2));
+              printf(
+                  "constrained vector: pos j-1 = [%lf, %lf, %lf] || pos j = [%lf, %lf, %lf]\n",
+                  x_stats_temp[j - 1].getPosition()(0),
+                  x_stats_temp[j - 1].getPosition()(1),
+                  x_stats_temp[j - 1].getPosition()(2),
+                  x_stats_temp[j].getPosition()(0),
+                  x_stats_temp[j].getPosition()(1),
+                  x_stats_temp[j].getPosition()(2));
             }
           }
         }
       }
 
       // compute q1 = 0.5 * dxi * (u * dxi - JacT)
-      // This quantity is needed for the update of u if the dxi is a "good" increment
-      // Question: why do we compute this outside of if?, Why is the D in there?
+      // This quantity is needed for the update of u if the dxi is a "good" increment Question: why do we compute this outside of if?, Why is the D in there?
       double q1 = 0.5 * dxi.dot(u * D * dxi - JacT);
 
       // Compute the residual associated with the new pose vector
@@ -624,9 +667,10 @@ class BALM2 {
       // Question: why like this?
       if (fabs(residual1 - residual2) / residual1 < 1e-6)
         break;
+      }
     }
-  }
-};
+  };
+
 
 void cut_voxel(
     SurfaceMap& surface_map, const resources::PointCloud& points_S,
