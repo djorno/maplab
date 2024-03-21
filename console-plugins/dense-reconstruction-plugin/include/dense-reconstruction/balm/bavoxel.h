@@ -466,7 +466,7 @@ class BALM2 {
 
     // u is the damping parameter used in the LM algorithm
     // v is a parameter dictating the update rate of u in case of unsuccessful value updates
-    double u = 0.01, v = 2, v_max_lin = 1.5, v_max_ang = 0.5, del_time = 1;
+    double u = 0.01, v = 2, v_max_lin = 1.0, v_max_ang = 0.5, del_time = 1;
 
     //bool constrain = true;
 
@@ -562,11 +562,15 @@ class BALM2 {
               else if (m_minus >= 0 && m_minus <= 1) {
                 m = m_minus;
               }
+              else if (std::isnan(m_plus)){
+                printf("Something's very wrong!!\n");
+                m = 1;
+              }
               else {
                 printf("Something's wrong!!\n");
                 m = m_plus;
               }
-              // double m = 0.5 * sqrt(4 * std::pow(del_pos_plus.transpose() * del_pos_bet, 2) - 4 * (-std::pow(del_pos_mag_max, 2) + std::pow(del_pos_plus.norm(), 2)) * std::pow(del_pos_bet.norm(), 2)) + std::pow(del_pos_plus.transpose() * del_pos_bet, 1) / std::pow(del_pos_bet.norm(), 2);
+              
               printf("m = %lf\n", m);
               double sanity_check = (del_pos_plus + dxi.block<3, 1>(6 * j + 3, 0) * m).norm();
               printf("sanity check = %lf\n", sanity_check);
