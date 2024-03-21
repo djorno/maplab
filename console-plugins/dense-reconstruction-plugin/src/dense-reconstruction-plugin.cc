@@ -770,15 +770,17 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         int64_t time_last_kf;
         vi_map::MissionId last_mission_id;
         last_mission_id.setInvalid();
+        std::vector<int64_t> keyframe_timestamps;
 
         // Accumulate point cloud into BALM format. Play with vi_map cache size
         // to facilitate multiple iterations over the same resources as we do
         // that for the undistortion.
         const size_t original_cache_size = map->getMaxCacheSize();
+
         map->setMaxCacheSize(1);
         depth_integration::IntegrationFunctionPointCloudMaplabWithExtras
             integration_function = [&map, &poses_G_S, &time_last_kf,
-                                    &last_mission_id, &pointclouds](
+                                    &last_mission_id, &pointclouds, &keyframe_timestamps](
                                        const aslam::Transformation& T_G_S,
                                        const int64_t timestamp_ns,
                                        const vi_map::MissionId& mission_id,
@@ -788,6 +790,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
               time_last_kf = timestamp_ns;
               last_mission_id = mission_id;
               pointclouds.emplace_back(points_S);
+              keyframe_timestamps.push_back(timestamp_ns);
 
               // Increase cache size by one
               map->setMaxCacheSize(map->getMaxCacheSize() + 1u);
@@ -875,6 +878,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         aslam::TransformationVector copy_poses_G_S = poses_G_S;
         VoxHess copy_voxhess = voxhess;
         printf("Unconstrained Optimization:\n");
+        printf("Size of timestamp vec: %lf\n", keyframe_timestamps.size());
         opt_lsv.damping_iter(poses_G_S, voxhess, false);
 
         printf("Constrained Optimization:\n");
@@ -893,7 +897,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
             poses_G_S, pointclouds, "balm_path_after",
             visualization::kCommonGreen, "balm_map_after");
         publishMapFromBALM(
-            copy_poses_G_S, pointclouds, "balm_path_after_constrained", visualization::kCommonDarkGreen, "balm_map_after_constrained"
+            copy_poses_G_S, pointclouds, "balm_path_after_constrained", visualization::kCommonRed, "balm_map_after_constrained"
         );
 
         return common::kSuccess;
