@@ -878,11 +878,10 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         aslam::TransformationVector copy_poses_G_S = poses_G_S;
         VoxHess copy_voxhess = voxhess;
         printf("Unconstrained Optimization:\n");
-        printf("Size of timestamp vec: %lf\n", keyframe_timestamps.size());
-        opt_lsv.damping_iter(poses_G_S, voxhess, false);
+        opt_lsv.damping_iter(poses_G_S, voxhess, keyframe_timestamps,false);
 
         printf("Constrained Optimization:\n");
-        opt_lsv.damping_iter(copy_poses_G_S, copy_voxhess, true);
+        opt_lsv.damping_iter(copy_poses_G_S, copy_voxhess, keyframe_timestamps, true);
 
 
         // Free up the memory

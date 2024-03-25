@@ -458,7 +458,7 @@ class BALM2 {
     return residual;
   }
 
-  void damping_iter(aslam::TransformationVector& x_stats, VoxHess& voxhess, bool constrain) {
+  void damping_iter(aslam::TransformationVector& x_stats, VoxHess& voxhess, const std::vector<int64_t> keyframe_timestamps, bool constrain) {
     // This function contains optimization loop of BALM.
     // Inputs: a pointer to the initial LiDAR pose estimate coming from VIO.
     // The LiDAR poses are placed at the integrated IMU locations from the previous camera pose for the LiDAR scan timestamp
@@ -466,7 +466,7 @@ class BALM2 {
 
     // u is the damping parameter used in the LM algorithm
     // v is a parameter dictating the update rate of u in case of unsuccessful value updates
-    double u = 0.01, v = 2, v_max_lin = 1.0, v_max_ang = 0.5, del_time = 1;
+    double u = 0.01, v = 2, v_max_lin = 1.0, v_max_ang = 0.5, del_time = 1.0;
 
     //bool constrain = true;
 
@@ -522,33 +522,11 @@ class BALM2 {
         if (constrain) {
           if (j != 0) {
             // Step 1
-            Eigen::Matrix<double, 3, 1> del_pos =
-                x_stats_temp[j].getPosition() -
-                x_stats_temp[j - 1].getPosition();
-            double del_pos_mag = del_pos.norm();
-            double del_pos_previous =
-                (x_stats[j].getPosition() - x_stats[j - 1].getPosition())
-                    .norm();
+            double del_pos_mag = (x_stats_temp[j].getPosition() -
+                                 x_stats_temp[j - 1].getPosition()).norm();
+            // float del_time = static_cast<float>(keyframe_timestamps[j] - keyframe_timestamps[j-1])/1000000000.0;
             // Step 2
             if (del_pos_mag / del_time >= v_max_lin) {
-              printf("entered at iteration %d\n", i);
-              printf(
-                  "j = %d, del_pos_mag = %lf, del_pos_prev = %lf\n", j,
-                  del_pos_mag, del_pos_previous);
-              printf(
-                  "old vector: pos j-1 = [%lf, %lf, %lf] || pos j = [%lf, %lf, %lf]\n",
-                  x_stats[j - 1].getPosition()(0),
-                  x_stats[j - 1].getPosition()(1),
-                  x_stats[j - 1].getPosition()(2), x_stats[j].getPosition()(0),
-                  x_stats[j].getPosition()(1), x_stats[j].getPosition()(2));
-              printf(
-                  "new vector: pos j-1 = [%lf, %lf, %lf] || pos j = [%lf, %lf, %lf]\n",
-                  x_stats_temp[j - 1].getPosition()(0),
-                  x_stats_temp[j - 1].getPosition()(1),
-                  x_stats_temp[j - 1].getPosition()(2),
-                  x_stats_temp[j].getPosition()(0),
-                  x_stats_temp[j].getPosition()(1),
-                  x_stats_temp[j].getPosition()(2));
 
               // Step 3
               double del_pos_mag_max = v_max_lin * del_time;
@@ -557,19 +535,6 @@ class BALM2 {
               Eigen::Matrix<double, 3, 1> del_pos_bet =
                   dxi.block<3, 1>(6 * j + 3, 0);
 
-              /// Debuggig
-              double a = std::pow(del_pos_plus.transpose() * del_pos_bet, 2);
-              double b = -std::pow(del_pos_mag_max, 2) +
-                         std::pow(del_pos_plus.transpose() * del_pos_plus, 2);
-              double d = std::pow(del_pos_bet.norm(), 2);
-              double e = std::pow(del_pos_plus.transpose() * del_pos_bet, 1);
-              double f = std::pow(del_pos_bet.norm(), 2);
-              double c = std::pow(del_pos_plus.transpose() * del_pos_bet, 2) -
-                         std::pow(del_pos_bet.norm(), 2) *
-                             (-std::pow(del_pos_mag_max, 2) +
-                              std::pow(del_pos_plus.norm(), 2));
-
-              // printf("a = %lf, b = %lf, under the sqrt = %lf, d = %lf, e = %lf, f= %lf\n", a, b, c, d, e, f);
               double m_plus =
                   (-del_pos_plus.transpose() * del_pos_bet +
                    sqrt(
@@ -593,36 +558,22 @@ class BALM2 {
               } else if (m_minus >= 0 && m_minus <= 1) {
                 m = m_minus;
               } else if (std::isnan(m_plus)) {
-                printf("Something's very wrong!!\n");
-                printf(
-                    "dxi: [%lf, %lf, %lf]\n", del_pos_bet(0), del_pos_bet(1),
-                    del_pos_bet(2));
                 m = 1;
               } else {
-                printf("Something's wrong!!\n");
                 if (std::fabs(m_plus) > std::fabs(m_minus)) {
                   m = m_minus;
                 } else {
                   m = m_plus;
                 }
               }
-
-              printf("m = %lf\n", m);
-              double sanity_check =
-                  (del_pos_plus + dxi.block<3, 1>(6 * j + 3, 0) * m).norm();
-              printf("sanity check = %lf\n", sanity_check);
               // Step 4
               dxi.block<3, 1>(6 * j + 3, 0) = dxi.block<3, 1>(6 * j + 3, 0) * m;
               x_stats_temp[j].getPosition() =
                   x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
-              printf(
-                  "constrained vector: pos j-1 = [%lf, %lf, %lf] || pos j = [%lf, %lf, %lf]\n",
-                  x_stats_temp[j - 1].getPosition()(0),
-                  x_stats_temp[j - 1].getPosition()(1),
-                  x_stats_temp[j - 1].getPosition()(2),
-                  x_stats_temp[j].getPosition()(0),
-                  x_stats_temp[j].getPosition()(1),
-                  x_stats_temp[j].getPosition()(2));
+              double del_pos_mag_post = (x_stats_temp[j].getPosition() -
+                                  x_stats_temp[j - 1].getPosition()).norm();
+              // Print out for debugging
+              printf("constraints: iter%d, keyfr#%d: mag before const: %lf, mag after const: %lf\n", i, j, del_pos_mag, del_pos_mag_post);
             }
           }
         }
