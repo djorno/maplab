@@ -1,7 +1,9 @@
 #include "map-optimization/optimization-terms-addition.h"
 
+#include <cstddef>
 #include <memory>
 
+#include <ceres-error-terms/balm-error-term.h>
 #include <ceres-error-terms/block-pose-prior-error-term-v2.h>
 #include <ceres-error-terms/inertial-error-term.h>
 #include <ceres-error-terms/landmark-common.h>
@@ -14,8 +16,11 @@
 #include <ceres/ceres.h>
 #include <landmark-triangulation/pose-interpolator.h>
 #include <maplab-common/progress-bar.h>
+#include <utility>
 #include <vi-map-helpers/vi-map-queries.h>
 #include <vi-map/landmark-quality-metrics.h>
+#include "ceres-error-terms/balm-voxhess.h"
+#include "glog/logging.h"
 
 namespace map_optimization {
 
@@ -100,13 +105,14 @@ void addLandmarkTermForKeypoint(
   double* camera_C_p_CI = camera_q_CI + 4;
 
   // List of cost term arguments shared between all landmark types.
-  std::vector<double*> cost_term_args = {landmark.get_p_B_Mutable(),
-                                         landmark_store_vertex_q_IM__M_p_MI,
-                                         landmark_store_baseframe_q_GM__G_p_GM,
-                                         observer_baseframe_q_GM__G_p_GM,
-                                         vertex_q_IM__M_p_MI,
-                                         camera_q_CI,
-                                         camera_C_p_CI};
+  std::vector<double*> cost_term_args = {
+      landmark.get_p_B_Mutable(),
+      landmark_store_vertex_q_IM__M_p_MI,
+      landmark_store_baseframe_q_GM__G_p_GM,
+      observer_baseframe_q_GM__G_p_GM,
+      vertex_q_IM__M_p_MI,
+      camera_q_CI,
+      camera_C_p_CI};
 
   const double observation_uncertainty =
       visual_frame.getKeypointMeasurementUncertainty(keypoint_idx);
@@ -494,6 +500,106 @@ int addInertialTermsForEdges(
   return num_residuals_added;
 }
 
+int addBALMTerms(OptimizationProblem* problem) {
+  CHECK_NOTNULL(problem);
+
+  vi_map::VIMap* map = CHECK_NOTNULL(problem->getMapMutable());
+
+  ceres_error_terms::VoxHess voxhess;
+  voxhess.evaluateVoxHess(map);
+
+  const OptimizationProblem::LocalParameterizations& parameterizations =
+      problem->getLocalParameterizations();
+
+  OptimizationStateBuffer* buffer =
+      CHECK_NOTNULL(problem->getOptimizationStateBufferMutable());
+
+  size_t num_residuals_added = 0u;
+
+  const size_t num_features = voxhess.getNumFeatures();
+  VLOG(3) << "N = " << num_features << " BALM features";
+
+  const vi_map::MissionIdSet& missions_to_optimize = problem->getMissionIds();
+  CHECK_EQ(missions_to_optimize.size(), 1u);
+  for (const vi_map::MissionId& mission_id : missions_to_optimize) {
+    pose_graph::VertexIdList vertices = voxhess.getVertexIds(mission_id);
+
+    // construct poses_M_I, containing all the poses for the mission
+    std::vector<double*> poses_M_I;
+    LOG(INFO) << "Num vertices: " << vertices.size();
+    for (pose_graph::VertexId vertex_id : vertices) {
+      double* vertex_q_IM__M_p_MI =
+          buffer->get_vertex_q_IM__M_p_MI_JPL(vertex_id);
+      poses_M_I.push_back(vertex_q_IM__M_p_MI);
+    }
+    LOG(INFO) << "num poses_M_I: " << poses_M_I.size();
+
+    const aslam::Transformation& T_I_S =
+        map->getSensorManager().getSensor_T_B_S(
+            map->getMission(mission_id).getLidarId());
+    const aslam::Transformation& T_G_M =
+        map->getMissionBaseFrameForMission(mission_id).get_T_G_M();
+
+    LOG(INFO) << "T_I_S: " << T_I_S.getTransformationMatrix() << std::endl
+              << "T_G_M: " << T_G_M.getTransformationMatrix() << std::endl;
+
+    // construct the evaluation callback for the current feature
+    LOG(INFO) << "CP before eval callback construction";
+
+    auto evaluation_callback_ptr =
+        std::make_shared<ceres_error_terms::BALMEvaluationCallback>(
+            std::move(voxhess), poses_M_I, T_I_S, T_G_M);
+    problem->setEvaluationCallback(evaluation_callback_ptr);
+    CHECK_NOTNULL(evaluation_callback_ptr);
+
+    // loop over all features
+    LOG(INFO) << "Num features: " << num_features;
+
+    // a vector containing the indices of the feature and the individual
+    // observation of that feature made by each pose in poses_M_I
+    // feature_indices[i] contains the pair of (feature_index, sig_i) for the
+    // pose i
+    std::vector<std::vector<std::pair<size_t, size_t>>> feature_indices(
+        poses_M_I.size());
+
+    for (size_t n = 0; n < num_features; ++n) {
+      const auto& voxhess_atom =
+          evaluation_callback_ptr->getVoxHess().getFeature(n);
+      const auto& pose_indices_n = voxhess_atom.index;
+      for (size_t i = 0; i < pose_indices_n.size(); ++i) {
+        size_t m = pose_indices_n[i];
+        CHECK(m < poses_M_I.size());
+        feature_indices[m].emplace_back(n, i);
+      }
+    }
+
+    for (size_t i = 0; i < poses_M_I.size(); ++i) {
+      // find the features that contribute to j_i
+      std::vector<std::pair<size_t, size_t>> feature_index = feature_indices[i];
+      // construct the residual block for the current feature
+      auto balm_term_cost = std::make_shared<ceres_error_terms::BALMErrorTerm>(
+          std::static_pointer_cast<ceres_error_terms::BALMEvaluationCallback>(
+              evaluation_callback_ptr),
+          i, feature_index);
+      // add the residual block to the problem
+      double* vertex_q_IM__M_p_MI_JPL = poses_M_I[i];
+      //   std::shared_ptr<ceres::LossFunction> loss_function(
+      //       new ceres::LossFunctionWrapper(
+      //           new ceres::HuberLoss(1.0), ceres::TAKE_OWNERSHIP));
+      problem->getProblemInformationMutable()->addResidualBlock(
+          ceres_error_terms::ResidualType::kBALM, balm_term_cost, nullptr,
+          {vertex_q_IM__M_p_MI_JPL});
+      ++num_residuals_added;
+
+      problem->getProblemBookkeepingMutable()->keyframes_in_problem.emplace(
+          vertices[i]);
+      problem->getProblemInformationMutable()->setParameterization(
+          vertex_q_IM__M_p_MI_JPL, parameterizations.pose_parameterization);
+    }
+  }
+  return num_residuals_added;
+}
+
 int addWheelOdometryTerms(
     const bool fix_extrinsics, OptimizationProblem* problem) {
   CHECK_NOTNULL(problem);
@@ -563,8 +669,8 @@ int addRelativePoseTermsForEdges(
       edge_type == pose_graph::Edge::EdgeType::kOdometry) {
     residual_type = ceres_error_terms::ResidualType::kOdometry;
   } else {
-    LOG(FATAL)
-        << "The given edge_type is not of a supported TransformationEdge type.";
+    LOG(FATAL) << "The given edge_type is not of a supported "
+                  "TransformationEdge type.";
   }
   VLOG(1) << "Adding " << pose_graph::Edge::edgeTypeToString(edge_type)
           << " term residual blocks...";
