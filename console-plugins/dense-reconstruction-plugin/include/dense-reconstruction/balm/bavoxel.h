@@ -456,7 +456,7 @@ class BALM2 {
     bool is_calc_hess = true;
     aslam::TransformationVector x_stats_temp = x_stats;
 
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 50; i++) {
       if (is_calc_hess) {
         residual1 = divide_thread(x_stats, voxhess, Hess, JacT);
       }
