@@ -837,7 +837,32 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
             FLAGS_dense_depth_map_reprojection_use_undistorted_camera, *map,
             integration_function, selection_function);
 
-        win_size = poses_G_S.size();
+        pose_graph::EdgeIdList edges;
+        map->getAllEdgeIdsInMissionAlongGraph(
+            mission_id[0], pose_graph::Edge::EdgeType::kViwls, &edges);
+
+        const vi_map::Imu& imu_sensor = map->getMissionImu(mission_id);
+        const vi_map::ImuSigmas& imu_sigmas = imu_sensor.getImuSigmas();
+
+        for (const pose_graph::EdgeId edge_id : edges) {
+          const vi_map::ViwlsEdge& inertial_edge =
+              map->getEdgeAs<vi_map::ViwlsEdge>(edge_id);
+
+          (inertial_edge.getImuData(), // 6xN matrix: accx accy accz gyrox gyroy gyroz
+                  inertial_edge.getImuTimestamps(), // Nx vector nanosecond timestamp
+                  imu_sigmas.gyro_noise_density,
+                  imu_sigmas.gyro_bias_random_walk_noise_density,
+                  imu_sigmas.acc_noise_density,
+                  imu_sigmas.acc_bias_random_walk_noise_density,
+                  gravity_magnitude);
+
+              vi_map::Vertex& vertex_from = map->getVertex(inertial_edge.from());
+              vi_map::Vertex& vertex_to = map->getVertex(inertial_edge.to());
+
+              vertex_from.getGyroBias()
+        }
+
+          win_size = poses_G_S.size();
         LOG(INFO) << "Selected a total of " << poses_G_S.size()
                   << " LiDAR scans as keyframes.";
 
