@@ -753,6 +753,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         if (!getSelectedMapKeyIfSet(&selected_map_key)) {
           return common::kStupidUserError;
         }
+        // create map object
         vi_map::VIMapManager map_manager;
         vi_map::VIMapManager::MapWriteAccess map =
             map_manager.getMapWriteAccess(selected_map_key);
@@ -836,6 +837,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
             mission_ids, input_resource_type,
             FLAGS_dense_depth_map_reprojection_use_undistorted_camera, *map,
             integration_function, selection_function);
+
 
         pose_graph::EdgeIdList edges;
         map->getAllEdgeIdsInMissionAlongGraph(
