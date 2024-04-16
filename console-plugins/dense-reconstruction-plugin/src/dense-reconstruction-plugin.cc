@@ -1,6 +1,7 @@
 #include "dense-reconstruction/balm/bavoxel.h"
 #include "dense-reconstruction/dense-reconstruction-plugin.h"
 #include "dense-reconstruction/voxblox-params.h"
+#include "dense-reconstruction/balm/inertial-terms.h"
 
 #include <chrono>
 #include <cstring>
@@ -770,6 +771,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         int64_t time_last_kf;
         vi_map::MissionId last_mission_id;
         last_mission_id.setInvalid();
+        std::vector<int64_t> keyframe_timestamps;
 
         // Accumulate point cloud into BALM format. Play with vi_map cache size
         // to facilitate multiple iterations over the same resources as we do
@@ -778,7 +780,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         map->setMaxCacheSize(1);
         depth_integration::IntegrationFunctionPointCloudMaplabWithExtras
             integration_function = [&map, &poses_G_S, &time_last_kf,
-                                    &last_mission_id, &pointclouds](
+                                    &last_mission_id, &pointclouds, &keyframe_timestamps](
                                        const aslam::Transformation& T_G_S,
                                        const int64_t timestamp_ns,
                                        const vi_map::MissionId& mission_id,
@@ -788,6 +790,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
               time_last_kf = timestamp_ns;
               last_mission_id = mission_id;
               pointclouds.emplace_back(points_S);
+              keyframe_timestamps.emplace_back(timestamp_ns);
 
               // Increase cache size by one
               map->setMaxCacheSize(map->getMaxCacheSize() + 1u);
@@ -838,31 +841,35 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
             FLAGS_dense_depth_map_reprojection_use_undistorted_camera, *map,
             integration_function, selection_function);
 
+        // create a copy of the map
+        vi_map::VIMap li_map;
+        li_map.deepCopy(*map.get());
+        // remove all vertices and edges from map
+        //li_map.deleteAllSensorResources(mission_ids[0], false);
+        li_map.deleteAllVerticesAndEdges();
+        // check that the map is empty
+        CHECK_EQ(li_map.numVertices(), 0);
+        CHECK_EQ(li_map.numEdges(), 0);
+        // build the LiDAR inertial map with synchronized LiDAR and IMU data
+        inertial::buildLIMap(mission_ids, map, poses_G_S,
+                             keyframe_timestamps, li_map);
 
-        pose_graph::EdgeIdList edges;
-        map->getAllEdgeIdsInMissionAlongGraph(
-            mission_id[0], pose_graph::Edge::EdgeType::kViwls, &edges);
-
-        const vi_map::Imu& imu_sensor = map->getMissionImu(mission_id);
-        const vi_map::ImuSigmas& imu_sigmas = imu_sensor.getImuSigmas();
-
-        for (const pose_graph::EdgeId edge_id : edges) {
-          const vi_map::ViwlsEdge& inertial_edge =
-              map->getEdgeAs<vi_map::ViwlsEdge>(edge_id);
-
-          (inertial_edge.getImuData(), // 6xN matrix: accx accy accz gyrox gyroy gyroz
+        /*  (inertial_edge.getImuData(), // 6xN matrix: accx accy accz gyrox gyroy gyroz
                   inertial_edge.getImuTimestamps(), // Nx vector nanosecond timestamp
                   imu_sigmas.gyro_noise_density,
                   imu_sigmas.gyro_bias_random_walk_noise_density,
                   imu_sigmas.acc_noise_density,
                   imu_sigmas.acc_bias_random_walk_noise_density,
-                  gravity_magnitude);
+                  gravity_magnitude);*/
+        
 
-              vi_map::Vertex& vertex_from = map->getVertex(inertial_edge.from());
-              vi_map::Vertex& vertex_to = map->getVertex(inertial_edge.to());
-
-              vertex_from.getGyroBias()
-        }
+        // print imu data and timestamps shape
+        LOG(INFO) << "IMU data shape: " << imu_data.rows() << "x" << imu_data.cols();
+        LOG(INFO) << "IMU timestamps shape: " << imu_timestamps.rows() << "x" << imu_timestamps.cols();
+        // print first imu timestamp
+        LOG(INFO) << "First IMU timestamp: " << imu_timestamps(0, 0);
+        // print first lidar timestamp
+        LOG(INFO) << "First LiDAR timestamp: " << keyframe_timestamps[0];
 
           win_size = poses_G_S.size();
         LOG(INFO) << "Selected a total of " << poses_G_S.size()

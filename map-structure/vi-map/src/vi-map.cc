@@ -2816,6 +2816,24 @@ void VIMap::deleteAllSensorResources(
   resource_types_to_sensor_to_resource_map.clear();
 }
 
+void VIMap::deleteAllVerticesAndEdges() {
+  vi_map::LandmarkIdSet observed_landmarks;
+  getAllLandmarkIds(&observed_landmarks);
+  for (const vi_map::LandmarkId& landmark_id : observed_landmarks) {
+    removeLandmark(landmark_id);
+  }
+  pose_graph::EdgeIdList edges;
+  getAllEdgeIds(&edges);
+  for (const pose_graph::EdgeId& edge_id : edges) {
+    removeEdge(edge_id);
+  }
+  pose_graph::VertexIdList vertices;
+  getAllVertexIds(&vertices);
+  for (const pose_graph::VertexId& vertex_id : vertices) {
+    removeVertex(vertex_id);
+  }
+}
+
 std::string VIMap::getSubFolderName() {
   return serialization::getSubFolderName();
 }
