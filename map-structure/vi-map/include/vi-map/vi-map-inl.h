@@ -69,7 +69,7 @@ const vi_map::Vertex& VIMap::getVertex(const pose_graph::VertexId& id) const {
   CHECK(id.isValid());
   const vi_map::Vertex& vertex =
       posegraph.getVertexPtr(id)->getAs<const vi_map::Vertex>();
-  CHECK(vertex.getNCameras() != nullptr);
+  // CHECK(vertex.getNCameras() != nullptr);
   return vertex;
 }
 const vi_map::Vertex* VIMap::getVertexPtr(

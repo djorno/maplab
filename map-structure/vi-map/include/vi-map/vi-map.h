@@ -731,6 +731,7 @@ class VIMap : public backend::ResourceMap,
       const bool delete_from_file_system);
   void deleteAllSensorResources(
       const vi_map::MissionId& mission_id, const bool delete_from_file_system);
+  void deleteAllVerticesAndEdges();
 
   // Map interface (for map manager)
   // ===============================

@@ -96,6 +96,15 @@ class Vertex : public pose_graph::Vertex {
       const aslam::VisualNFrame::Ptr visual_n_frame,
       const vi_map::MissionId& mission_id);
 
+  // Vertex for LiDAR-Intertial mapping.
+  Vertex(
+      const pose_graph::VertexId& vertex_id,
+      const Eigen::Matrix<double, 6, 1>& imu_ba_bw,
+      const vi_map::MissionId& mission_id,
+      const aslam::Transformation& T_M_I
+      //, const aslam::NCamera::Ptr cameras
+      );
+
   // Create a vertex with VisualNFrame based on the camera model provided. Does
   // not include any measurements.
   // NOTE: make sure the NCamera points to the same object as the one in
