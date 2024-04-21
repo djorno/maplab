@@ -1,7 +1,10 @@
 #include "dense-reconstruction/balm/bavoxel.h"
 #include "dense-reconstruction/dense-reconstruction-plugin.h"
 #include "dense-reconstruction/voxblox-params.h"
+#include "dense-reconstruction/balm/li-map.h"
 #include "dense-reconstruction/balm/inertial-terms.h"
+#include "dense-reconstruction/balm/state-buffer.h"
+#include "dense-reconstruction/balm/common.h"
 
 #include <chrono>
 #include <cstring>
@@ -851,26 +854,47 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         CHECK_EQ(li_map.numVertices(), 0);
         CHECK_EQ(li_map.numEdges(), 0);
         // build the LiDAR inertial map with synchronized LiDAR and IMU data
-        inertial::buildLIMap(mission_ids, map, poses_G_S,
+        li_map::buildLIMap(mission_ids, map, poses_G_S,
                              keyframe_timestamps, li_map);
-
-        /*  (inertial_edge.getImuData(), // 6xN matrix: accx accy accz gyrox gyroy gyroz
-                  inertial_edge.getImuTimestamps(), // Nx vector nanosecond timestamp
-                  imu_sigmas.gyro_noise_density,
-                  imu_sigmas.gyro_bias_random_walk_noise_density,
-                  imu_sigmas.acc_noise_density,
-                  imu_sigmas.acc_bias_random_walk_noise_density,
-                  gravity_magnitude);*/
+        size_t num_vertices = li_map.numVertices();
+        size_t num_edges = li_map.numEdges();
+        LOG(INFO) << "LiDAR-inertial map built with " << num_vertices
+                  << " vertices and " << num_edges << " edges.";
+        /*
+        // create inertial residual block
+        balm_error_terms::ResidualBlockSet inertial_residual_block;
+        // create state buffer
+        balm_error_terms::OptimizationStateBuffer buffer;
+        int num_blocks_added = balm_error_terms::addInertialTermsForEdges(&li_map, inertial_residual_block, &buffer);
+        LOG(INFO) << "Added " << num_blocks_added << " inertial residual blocks to the optimization problem.";
+        // check buffer
+        LOG(INFO) << "Checking buffer...";
+        balm_error_terms::checkBuffer(&buffer, &li_map);
+        LOG(INFO) << "Buffer checked.";
         
+        // create jacobians, residuals and parameters pointers
+        Eigen::Matrix<double, Eigen::Dynamic, 1> residuals;
+        Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> jacobians;
+        Eigen::Matrix<double, Eigen::Dynamic, 1> parameters;
+        // allocate memory for parameters, residuals and jacobians
+        residuals.resize(num_vertices * balm_error_terms::kFullResidualSize, 1);
+        residuals.setZero();
+        jacobians.resize(num_vertices * balm_error_terms::kFullResidualSize, num_vertices * balm_error_terms::kUpdateSize);
+        jacobians.setZero();
+        parameters.resize(num_vertices * balm_error_terms::kStateSize, 1);
+        parameters.setZero();
+        
+        LOG(INFO) << "Starting to evaluate jacobians...";
+        timing::TimerImpl jac_timer("balm: jac_eval");
+        // evaluate jacobians
+        
+        LOG(INFO) << "Time to evaluate jacobians: " << jac_timer.Stop() << "s.";
+        // check that the residuals, jacobians and parameters are not zero
+        CHECK_GT(jacobians.norm(), 0.);
+        CHECK_GT(residuals.norm(), 0.);
 
-        // print imu data and timestamps shape
-        LOG(INFO) << "IMU data shape: " << imu_data.rows() << "x" << imu_data.cols();
-        LOG(INFO) << "IMU timestamps shape: " << imu_timestamps.rows() << "x" << imu_timestamps.cols();
-        // print first imu timestamp
-        LOG(INFO) << "First IMU timestamp: " << imu_timestamps(0, 0);
-        // print first lidar timestamp
         LOG(INFO) << "First LiDAR timestamp: " << keyframe_timestamps[0];
-
+        */
           win_size = poses_G_S.size();
         LOG(INFO) << "Selected a total of " << poses_G_S.size()
                   << " LiDAR scans as keyframes.";
@@ -904,7 +928,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
 
         // Optimize the planes together
         BALM2 opt_lsv;
-        opt_lsv.damping_iter(poses_G_S, voxhess);
+        opt_lsv.damping_iter(poses_G_S, voxhess, li_map);
 
 
         // Free up the memory

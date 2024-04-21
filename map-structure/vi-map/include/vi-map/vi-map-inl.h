@@ -54,7 +54,7 @@ vi_map::Vertex& VIMap::getVertex(const pose_graph::VertexId& id) {
   CHECK(id.isValid());
   vi_map::Vertex& vertex =
       posegraph.getVertexPtrMutable(id)->getAs<vi_map::Vertex>();
-  CHECK(vertex.getNCameras() != nullptr);
+  // CHECK(vertex.getNCameras() != nullptr);
   return vertex;
 }
 vi_map::Vertex* VIMap::getVertexPtr(const pose_graph::VertexId& id) {
@@ -62,7 +62,7 @@ vi_map::Vertex* VIMap::getVertexPtr(const pose_graph::VertexId& id) {
   vi_map::Vertex* vertex_ptr = dynamic_cast<vi_map::Vertex*>(  // NOLINT
       posegraph.getVertexPtrMutable(id));
   CHECK(vertex_ptr != nullptr);
-  CHECK(vertex_ptr->getNCameras() != nullptr);
+  // CHECK(vertex_ptr->getNCameras() != nullptr);
   return vertex_ptr;
 }
 const vi_map::Vertex& VIMap::getVertex(const pose_graph::VertexId& id) const {
@@ -79,7 +79,7 @@ const vi_map::Vertex* VIMap::getVertexPtr(
       dynamic_cast<const vi_map::Vertex*>(  // NOLINT
           posegraph.getVertexPtr(id));
   CHECK(vertex_ptr != nullptr);
-  CHECK(vertex_ptr->getNCameras() != nullptr);
+  // CHECK(vertex_ptr->getNCameras() != nullptr);
   return vertex_ptr;
 }
 

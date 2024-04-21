@@ -100,6 +100,7 @@ class Vertex : public pose_graph::Vertex {
   Vertex(
       const pose_graph::VertexId& vertex_id,
       const Eigen::Matrix<double, 6, 1>& imu_ba_bw,
+      const Eigen::Vector3d& v_M,
       const vi_map::MissionId& mission_id,
       const aslam::Transformation& T_M_I
       //, const aslam::NCamera::Ptr cameras
