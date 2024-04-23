@@ -147,6 +147,7 @@ Vertex::Vertex(
 Vertex::Vertex(
       const pose_graph::VertexId& vertex_id,
       const Eigen::Matrix<double, 6, 1>& imu_ba_bw,
+      const Eigen::Vector3d& v_M,
       const vi_map::MissionId& mission_id,
       const aslam::Transformation& T_M_I
       )//, const aslam::NCamera::Ptr cameras)
@@ -154,27 +155,9 @@ Vertex::Vertex(
   // CHECK(n_frame_ != nullptr) << "VisualNFrame is nullptr.";
   accel_bias_ = imu_ba_bw.head<3>();
   gyro_bias_ = imu_ba_bw.tail<3>();
-  v_M_.setZero();
+  v_M_ = v_M;
   T_M_I_ = T_M_I;
-  /*CHECK(cameras != nullptr);
-  n_frame_.reset(new aslam::VisualNFrame(cameras));
-  observed_landmark_ids_.resize(n_frame_->getNumFrames());
-
-  aslam::NFramesId n_frame_id;
-  aslam::generateId(&n_frame_id);
-  n_frame_->setId(n_frame_id);
-
-  for (unsigned int i = 0; i < cameras->numCameras(); ++i) {
-    int64_t timestamp = 0u;
-    aslam::FrameId frame_id;
-    aslam::generateId(&frame_id);
-    aslam::VisualFrame::Ptr frame(new aslam::VisualFrame);
-    frame->setId(frame_id);
-    frame->setTimestampNanoseconds(timestamp);
-
-    frame->setCameraGeometry(n_frame_->getNCameraShared()->getCameraShared(i));
-    n_frame_->setFrame(i, frame);
-  }*/
+  
 }
 
 Vertex::Vertex(const aslam::NCamera::Ptr cameras) {

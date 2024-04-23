@@ -8,6 +8,49 @@
 #include <maplab-common/threading-helpers.h>
 #include <resources-common/point-cloud.h>
 
+#include "dense-reconstruction/balm/state-buffer.h"
+#include "dense-reconstruction/balm/inertial-error-term.h"
+#include "dense-reconstruction/balm/common.h"
+#include "dense-reconstruction/balm/inertial-terms.h" 
+
+#include <Eigen/Core>
+#include <aslam/common/pose-types.h>
+#include <gflags/gflags.h>
+#include <kindr/minimal/common.h>
+#include <maplab-common/threading-helpers.h>
+#include <resources-common/point-cloud.h>
+
+#include <chrono>
+#include <cstring>
+#include <malloc.h>
+#include <string>
+#include <cstdint> 
+
+#include <aslam/common/timer.h>
+#include <aslam/common/memory.h>
+#include <aslam/common/unique-id.h>
+#include <glog/logging.h>
+#include <vi-map/vi-map.h>
+#include <console-common/console.h>
+#include <dense-reconstruction/conversion-tools.h>
+#include <dense-reconstruction/pmvs-file-utils.h>
+#include <dense-reconstruction/pmvs-interface.h>
+#include <dense-reconstruction/stereo-dense-reconstruction.h>
+#include <depth-integration/depth-integration.h>
+#include <gflags/gflags.h>
+#include <map-manager/map-manager.h>
+#include <maplab-common/conversions.h>
+#include <maplab-common/file-system-tools.h>
+#include <vi-map/unique-id.h>
+#include <vi-map/vi-map.h>
+#include <memory>
+
+#include <ceres-error-terms/parameterization/quaternion-param-jpl.h>
+#include <imu-integrator/imu-integrator.h>
+#include <maplab-common/quaternion-math.h>
+#include <iostream>
+
+
 #include <thread>
 #include <vector>
 
@@ -445,36 +488,157 @@ class BALM2 {
     return residual;
   }
 
-  void damping_iter(aslam::TransformationVector& x_stats, VoxHess& voxhess) {
-    double u = 0.01, v = 2;
+  void damping_iter(aslam::TransformationVector& x_stats, VoxHess& voxhess, vi_map::VIMap& map) {
+    //double u = 0.01, v = 2;
+    double u = 0.02, v = 2;
+    double lambda = 0.01;
     Eigen::MatrixXd D(6 * win_size, 6 * win_size),
         Hess(6 * win_size, 6 * win_size);
-    Eigen::VectorXd JacT(6 * win_size), dxi(6 * win_size);
+    Eigen::VectorXd JacT(6 * win_size), dxi(balm_error_terms::kFullResidualSize * win_size);
+    Eigen::VectorXd JacT_full(balm_error_terms::kFullResidualSize * win_size);
+    Eigen::MatrixXd Hess_full(balm_error_terms::kFullResidualSize * win_size, balm_error_terms::kFullResidualSize * win_size),
+        D_full(balm_error_terms::kFullResidualSize * win_size, balm_error_terms::kFullResidualSize * win_size);
+
+    Eigen::MatrixXd Identity(balm_error_terms::kFullResidualSize * win_size, balm_error_terms::kFullResidualSize * win_size);
+    JacT_full.setZero();
+    Hess_full.setZero();
+
+    Eigen::MatrixXd Hess_inertial(balm_error_terms::kFullResidualSize * win_size, balm_error_terms::kFullResidualSize * win_size);
+    Eigen::VectorXd J_T_r(balm_error_terms::kFullResidualSize * win_size); 
 
     D.setIdentity();
+    D_full.setIdentity();
+    Identity.setIdentity();
+
     double residual1, residual2, q;
     bool is_calc_hess = true;
     aslam::TransformationVector x_stats_temp = x_stats;
 
+    Eigen::Matrix<double, Eigen::Dynamic, 1> temporary_states;
+    temporary_states.resize(balm_error_terms::kStateSize * win_size, 1);
+
+    // setup for inertial integration
+    // create inertial residual block
+    balm_error_terms::ResidualBlockSet inertial_residual_block;
+    // create state buffer
+    balm_error_terms::OptimizationStateBuffer buffer;
+    int num_blocks_added = balm_error_terms::addInertialTermsForEdges(&map, inertial_residual_block, &buffer);
+    LOG(INFO) << "Added " << num_blocks_added << " inertial residual blocks to the optimization problem.";
+    // check buffer
+    LOG(INFO) << "Checking buffer...";
+    balm_error_terms::checkBuffer(&buffer, &map);
+    LOG(INFO) << "Buffer checked.";
+
+    // create jacobians, residuals and parameters pointers
+    Eigen::Matrix<double, Eigen::Dynamic, 1> residuals;
+    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> jacobians;
+    Eigen::Matrix<double, Eigen::Dynamic, 1> parameters;
+    // allocate memory for parameters, residuals and jacobians
+    const int num_vertices = map.numVertices();
+    CHECK_EQ(num_vertices, win_size);
+    residuals.resize(num_vertices * balm_error_terms::kFullResidualSize, 1);
+    //residuals.setZero();
+    jacobians.resize(num_vertices * balm_error_terms::kFullResidualSize, num_vertices * balm_error_terms::kUpdateSize);
+    //jacobians.setZero();
+    parameters.resize(num_vertices * balm_error_terms::kStateSize, 1);
+    //parameters.setZero();
+
     // Optimization Loop
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 1; i++) {
+
       if (is_calc_hess) {
-        residual1 = divide_thread(x_stats, voxhess, Hess, JacT);
+        // calculate the residuals and jacobians
+        timing::TimerImpl jac_timer("balm_evaluate_inertial_jacobian");
+        balm_error_terms::evaluateInertialJacobian(inertial_residual_block, &map, &buffer, jacobians, residuals, parameters);
+        double residual_balm = divide_thread(x_stats, voxhess, Hess, JacT);
+        residual1 = residual_balm * residual_balm * 0.8 + 0.25 * residuals.squaredNorm();
+        LOG(INFO) << "Evaluated inertial jacobian in " << jac_timer.Stop() << " s.";
+        // insert the JacT into jacobians
+        for (int j = 0; j < num_vertices; j++) {
+          JacT_full.block<3, 1>(balm_error_terms::kFullResidualSize * j, 0) = JacT.block<3, 1>(6 * j, 0);
+          JacT_full.block<3, 1>(balm_error_terms::kFullResidualSize * j + 12, 0) = JacT.block<3, 1>(6 * j + 3, 0);
+
+          Hess_full.block<3, 3>(balm_error_terms::kFullResidualSize * j, balm_error_terms::kFullResidualSize * j) = Hess.block<3, 3>(6 * j, 6 * j);
+          Hess_full.block<3, 3>(balm_error_terms::kFullResidualSize * j + 12, balm_error_terms::kFullResidualSize * j + 12) = Hess.block<3, 3>(6 * j + 3, 6 * j + 3);
+          Hess_full.block<3, 3>(balm_error_terms::kFullResidualSize * j, balm_error_terms::kFullResidualSize * j + 12) = Hess.block<3, 3>(6 * j, 6 * j + 3);
+          Hess_full.block<3, 3>(balm_error_terms::kFullResidualSize * j + 12, balm_error_terms::kFullResidualSize * j) = Hess.block<3, 3>(6 * j + 3, 6 * j);
+        }
+
       }
 
       D.diagonal() = Hess.diagonal();
-      dxi = (Hess + u * D).ldlt().solve(-JacT);
+      D_full.diagonal() = Hess_full.diagonal();
+      Hess_inertial = jacobians.transpose() * jacobians;
+      J_T_r = jacobians.transpose() * residuals;
 
+      LOG(INFO) << "Starting checks...";
+      // check that all dimensions are correct
+      LOG(INFO) << "Checking dimensions...";
+      CHECK_EQ(Hess_full.rows(), balm_error_terms::kFullResidualSize * win_size);
+      CHECK_EQ(Hess_full.cols(), balm_error_terms::kFullResidualSize * win_size);
+      CHECK_EQ(JacT_full.rows(), balm_error_terms::kFullResidualSize * win_size);
+      CHECK_EQ(JacT_full.cols(), 1);
+      CHECK_EQ(D_full.rows(), balm_error_terms::kFullResidualSize * win_size);
+      CHECK_EQ(D_full.cols(), balm_error_terms::kFullResidualSize * win_size);
+      CHECK_EQ(residuals.rows(), balm_error_terms::kFullResidualSize * win_size);
+      CHECK_EQ(residuals.cols(), 1);
+      CHECK_EQ(jacobians.rows(), Hess_full.rows());
+      CHECK_EQ(jacobians.cols(), Hess_full.cols());
+
+      LOG(INFO) << "Checking matrix entries...";
+      // check that all matrix entries are valid
+      CHECK(residuals.allFinite());
+      CHECK(jacobians.allFinite());
+      CHECK(Hess_inertial.allFinite());
+      CHECK(parameters.allFinite());
+      CHECK(Hess_full.allFinite());
+      CHECK(JacT_full.allFinite());
+      CHECK(J_T_r.allFinite());
+      // check that all matrix entries are not nan
+      LOG(INFO) << "Checking matrix entries for NaN...";
+      CHECK(!residuals.hasNaN());
+      CHECK(!jacobians.hasNaN());
+      CHECK(!Hess_inertial.hasNaN());
+      CHECK(!parameters.hasNaN());
+      CHECK(!Hess_full.hasNaN());
+      CHECK(!JacT_full.hasNaN());
+      CHECK(!J_T_r.hasNaN());
+
+      LOG(INFO) << "Checks passed.";
+
+      // solve the linear system
+      LOG(INFO) << "Solving linear system...";
+      //Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(Hess_full * 0.8 + 0.25 * Hess_inertial + u * D_full);
+      //LOG(INFO) << "Eigenvalues: " << eigensolver.eigenvalues();
+      //LOG(INFO) << "Eigenvectors: " << eigensolver.eigenvectors();
+      //LOG(INFO) << "Max eigenvalue: " << eigensolver.eigenvalues().maxCoeff();
+      //LOG(INFO) << "Min eigenvalue: " << eigensolver.eigenvalues().minCoeff();
+      //LOG(INFO) << "Condition number: " << eigensolver.eigenvalues().maxCoeff() / eigensolver.eigenvalues().minCoeff();
+      timing::TimerImpl it_timer("balm_solve_linear_system");
+      dxi = (Hess_full * 0.8 + 0.25 * Hess_inertial + u * D_full + lambda * Identity).ldlt().solve(- 0.8 * JacT - 0.25 * J_T_r);
+      LOG(INFO) << "Solved linear system in " << it_timer.Stop() << " s.";
+      CHECK(!dxi.hasNaN());
       for (int j = 0; j < win_size; j++) {
         x_stats_temp[j].getRotation() =
             x_stats[j].getRotation() *
-            aslam::Quaternion::exp(dxi.block<3, 1>(6 * j, 0));
+            aslam::Quaternion::exp(dxi.block<3, 1>(balm_error_terms::kFullResidualSize * j, 0));
         x_stats_temp[j].getPosition() =
-            x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
+            x_stats[j].getPosition() + dxi.block<3, 1>(balm_error_terms::kFullResidualSize * j + 12, 0);
+        
+        // save temporary states
+        Eigen::Quaterniond quat = x_stats_temp[j].getRotation().toImplementation();
+        balm_error_terms::ensurePositiveQuaternion(quat.coeffs());
+        balm_error_terms::assertValidQuaternion(quat);
+
+        temporary_states.block<4, 1>(balm_error_terms::kStateSize * j, 0) = quat.coeffs();
+        temporary_states.block<12, 1>(balm_error_terms::kStateSize * j + 4, 0) = dxi.block<12, 1>(balm_error_terms::kFullResidualSize * j + 3, 0) + parameters.block<12, 1>(balm_error_terms::kStateSize * j + 4, 0);
       }
       double q1 = 0.5 * dxi.dot(u * D * dxi - JacT);
 
-      residual2 = only_residual(x_stats_temp, voxhess);
+      double residual_balm2 = only_residual(x_stats_temp, voxhess);
+      balm_error_terms::calculateResiduals(inertial_residual_block, &map, residuals, temporary_states);
+
+      residual2 = residual_balm2 * residual_balm2 * 0.8 + 0.25 * residuals.squaredNorm();
 
       q = (residual1 - residual2);
       printf(
