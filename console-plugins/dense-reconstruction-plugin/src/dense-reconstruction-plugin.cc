@@ -767,6 +767,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
 
         // Setting up BALM variables
         aslam::TransformationVector poses_G_S;
+        aslam::TransformationVector poses_M_B;
         std::vector<resources::PointCloud> pointclouds;
 
         // Keyframe the point clouds, otherwise the memory blows up.
@@ -775,16 +776,24 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         vi_map::MissionId last_mission_id;
         last_mission_id.setInvalid();
         std::vector<int64_t> keyframe_timestamps;
+        std::vector<Eigen::Vector3d> keyframe_velocities;
+        std::vector<Eigen::Vector3d> keyframe_gyro_bias;
+        std::vector<Eigen::Vector3d> keyframe_accel_bias;
 
         // Accumulate point cloud into BALM format. Play with vi_map cache size
         // to facilitate multiple iterations over the same resources as we do
         // that for the undistortion.
         const size_t original_cache_size = map->getMaxCacheSize();
         map->setMaxCacheSize(1);
-        depth_integration::IntegrationFunctionPointCloudMaplabWithExtras
+        depth_integration::IntegrationFunctionPointCloudMaplabWithExtrasAndImu
             integration_function = [&map, &poses_G_S, &time_last_kf,
-                                    &last_mission_id, &pointclouds, &keyframe_timestamps](
+                                    &last_mission_id, &pointclouds, &keyframe_timestamps,
+                                    &keyframe_velocities, &keyframe_gyro_bias, &keyframe_accel_bias, &poses_M_B](
                                        const aslam::Transformation& T_G_S,
+                                       const aslam::Transformation& T_M_B,
+                                       const Eigen::Vector3d& v_M_B,
+                                       const Eigen::Vector3d& gb_B,
+                                       const Eigen::Vector3d& ab_B,
                                        const int64_t timestamp_ns,
                                        const vi_map::MissionId& mission_id,
                                        const size_t /*counter*/,
@@ -794,6 +803,11 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
               last_mission_id = mission_id;
               pointclouds.emplace_back(points_S);
               keyframe_timestamps.emplace_back(timestamp_ns);
+              keyframe_velocities.emplace_back(v_M_B);
+              keyframe_gyro_bias.emplace_back(gb_B);
+              keyframe_accel_bias.emplace_back(ab_B);
+              poses_M_B.emplace_back(T_M_B);
+
 
               // Increase cache size by one
               map->setMaxCacheSize(map->getMaxCacheSize() + 1u);
@@ -848,53 +862,25 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         vi_map::VIMap li_map;
         li_map.deepCopy(*map.get());
         // remove all vertices and edges from map
-        //li_map.deleteAllSensorResources(mission_ids[0], false);
         li_map.deleteAllVerticesAndEdges();
         // check that the map is empty
         CHECK_EQ(li_map.numVertices(), 0);
         CHECK_EQ(li_map.numEdges(), 0);
         // build the LiDAR inertial map with synchronized LiDAR and IMU data
-        li_map::buildLIMap(mission_ids, map, poses_G_S,
-                             keyframe_timestamps, li_map);
+        li_map::buildLIMap(mission_ids, map, poses_M_B, 
+                          keyframe_velocities, keyframe_gyro_bias, 
+                          keyframe_accel_bias,
+                          keyframe_timestamps, li_map);
         size_t num_vertices = li_map.numVertices();
         size_t num_edges = li_map.numEdges();
         LOG(INFO) << "LiDAR-inertial map built with " << num_vertices
                   << " vertices and " << num_edges << " edges.";
-        /*
-        // create inertial residual block
-        balm_error_terms::ResidualBlockSet inertial_residual_block;
-        // create state buffer
-        balm_error_terms::OptimizationStateBuffer buffer;
-        int num_blocks_added = balm_error_terms::addInertialTermsForEdges(&li_map, inertial_residual_block, &buffer);
-        LOG(INFO) << "Added " << num_blocks_added << " inertial residual blocks to the optimization problem.";
-        // check buffer
-        LOG(INFO) << "Checking buffer...";
-        balm_error_terms::checkBuffer(&buffer, &li_map);
-        LOG(INFO) << "Buffer checked.";
-        
-        // create jacobians, residuals and parameters pointers
-        Eigen::Matrix<double, Eigen::Dynamic, 1> residuals;
-        Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> jacobians;
-        Eigen::Matrix<double, Eigen::Dynamic, 1> parameters;
-        // allocate memory for parameters, residuals and jacobians
-        residuals.resize(num_vertices * balm_error_terms::kFullResidualSize, 1);
-        residuals.setZero();
-        jacobians.resize(num_vertices * balm_error_terms::kFullResidualSize, num_vertices * balm_error_terms::kUpdateSize);
-        jacobians.setZero();
-        parameters.resize(num_vertices * balm_error_terms::kStateSize, 1);
-        parameters.setZero();
-        
-        LOG(INFO) << "Starting to evaluate jacobians...";
-        timing::TimerImpl jac_timer("balm: jac_eval");
-        // evaluate jacobians
-        
-        LOG(INFO) << "Time to evaluate jacobians: " << jac_timer.Stop() << "s.";
-        // check that the residuals, jacobians and parameters are not zero
-        CHECK_GT(jacobians.norm(), 0.);
-        CHECK_GT(residuals.norm(), 0.);
+        const aslam::Transformation& T_G_M = 
+                  li_map.getMissionBaseFrameForMission(mission_ids[0]).get_T_G_M();
+        LOG(INFO) << "Mission base frame: " << T_G_M.getPosition().transpose() << " " << T_G_M.getRotation().toImplementation().coeffs().transpose();
 
-        LOG(INFO) << "First LiDAR timestamp: " << keyframe_timestamps[0];
-        */
+        
+
           win_size = poses_G_S.size();
         LOG(INFO) << "Selected a total of " << poses_G_S.size()
                   << " LiDAR scans as keyframes.";

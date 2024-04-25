@@ -25,10 +25,22 @@ typedef std::function<void(
     IntegrationFunctionPointCloudMaplab;
 
 typedef std::function<void(
-    const aslam::Transformation& /*T_G_S*/, const int64_t /*ts_ns*/,
+    const aslam::Transformation& /*T_G_S*/, 
+    const int64_t /*ts_ns*/,
     const vi_map::MissionId& /*mission_id*/, const size_t /*counter*/,
     const resources::PointCloud& /*points_S*/)>
     IntegrationFunctionPointCloudMaplabWithExtras;
+
+typedef std::function<void(
+    const aslam::Transformation& /*T_G_S*/, 
+    const aslam::Transformation& /*T_M_B*/,
+    const Eigen::Vector3d& /*velocities*/,
+    const Eigen::Vector3d& /*gyro_bias*/,
+    const Eigen::Vector3d& /*acc_bias*/,
+    const int64_t /*ts_ns*/,
+    const vi_map::MissionId& /*mission_id*/, const size_t /*counter*/,
+    const resources::PointCloud& /*points_S*/)>
+    IntegrationFunctionPointCloudMaplabWithExtrasAndImu;
 
 // Set of supported resource types when using the depth integrator with the
 // point cloud integration function.
@@ -99,7 +111,12 @@ void integrateAllDepthResourcesOfType(
 // the integration function and calls it.
 template <typename IntegrationFunctionType>
 void integratePointCloud(
-    const aslam::Transformation& T_G_C, const int64_t timestamp_ns,
+    const aslam::Transformation& T_G_C, 
+    const aslam::Transformation& T_M_B,
+    const Eigen::Vector3d& velocities, 
+    const Eigen::Vector3d& gyro_bias,
+    const Eigen::Vector3d& acc_bias, 
+    const int64_t timestamp_ns,
     const vi_map::MissionId& mission_id, const size_t counter,
     const resources::PointCloud& points_C,
     IntegrationFunctionType integration_function);

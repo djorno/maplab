@@ -44,7 +44,12 @@ namespace depth_integration {
 
 template <>
 void integratePointCloud(
-    const aslam::Transformation& T_G_C, const int64_t /*timestamp*/,
+    const aslam::Transformation& T_G_C, 
+    const aslam::Transformation& /*T_M_B*/,
+    const Eigen::Vector3d& /*velocity*/, 
+    const Eigen::Vector3d& /*gyro_bias*/,
+    const Eigen::Vector3d& /*acc_bias*/, 
+    const int64_t /*timestamp*/,
     const vi_map::MissionId& /*mission_id*/, const size_t /*counter*/,
     const resources::PointCloud& points_C,
     IntegrationFunctionPointCloudVoxblox integration_function) {
@@ -73,7 +78,11 @@ void integratePointCloud(
 
 template <>
 void integratePointCloud(
-    const aslam::Transformation& T_G_C, const int64_t /*timestamp*/,
+    const aslam::Transformation& T_G_C, 
+    const aslam::Transformation& /*T_M_B*/,
+    const Eigen::Vector3d& /*velocity*/, 
+    const Eigen::Vector3d& /*gyro_bias*/,
+    const Eigen::Vector3d& /*acc_bias*/, const int64_t /*timestamp*/,
     const vi_map::MissionId& /*mission_id*/, const size_t /*counter*/,
     const resources::PointCloud& points_C,
     IntegrationFunctionPointCloudMaplab integration_function) {
@@ -83,7 +92,11 @@ void integratePointCloud(
 
 template <>
 void integratePointCloud(
-    const aslam::Transformation& /*T_G_C*/, const int64_t /*timestamp*/,
+    const aslam::Transformation& /*T_G_C*/, 
+    const aslam::Transformation& /*T_M_B*/,
+    const Eigen::Vector3d& /*velocity*/, 
+    const Eigen::Vector3d& /*gyro_bias*/,
+    const Eigen::Vector3d& /*acc_bias*/, const int64_t /*timestamp*/,
     const vi_map::MissionId& /*mission_id*/, const size_t /*counter*/,
     const resources::PointCloud& /*points_C*/,
     IntegrationFunctionDepthImage /*integration_function*/) {
@@ -93,12 +106,34 @@ void integratePointCloud(
 
 template <>
 void integratePointCloud(
-    const aslam::Transformation& T_G_C, const int64_t ts_ns,
+    const aslam::Transformation& T_G_C, 
+    const aslam::Transformation& /*T_M_B*/,
+    const Eigen::Vector3d& /*velocity*/, 
+    const Eigen::Vector3d& /*gyro_bias*/,
+    const Eigen::Vector3d& /*acc_bias*/, 
+    const int64_t ts_ns,
     const vi_map::MissionId& mission_id, const size_t counter,
     const resources::PointCloud& points_C,
     IntegrationFunctionPointCloudMaplabWithExtras integration_function) {
   CHECK(integration_function);
   integration_function(T_G_C, ts_ns, mission_id, counter, points_C);
+}
+
+template <>
+void integratePointCloud(
+    const aslam::Transformation& T_G_C, 
+    const aslam::Transformation& T_M_B,
+    const Eigen::Vector3d& velocities, 
+    const Eigen::Vector3d& gyro_bias,
+    const Eigen::Vector3d& acc_bias, 
+    const int64_t ts_ns,
+    const vi_map::MissionId& mission_id, const size_t counter,
+    const resources::PointCloud& points_C,
+    IntegrationFunctionPointCloudMaplabWithExtrasAndImu integration_function) {
+  CHECK(integration_function);
+  integration_function(
+      T_G_C, T_M_B, velocities, gyro_bias, acc_bias, ts_ns, mission_id, counter,
+      points_C);
 }
 
 template <>
@@ -204,6 +239,12 @@ bool isSupportedResourceType<IntegrationFunctionDepthImage>(
 
 template <>
 bool isSupportedResourceType<IntegrationFunctionPointCloudMaplabWithExtras>(
+    const backend::ResourceType& resource_type) {
+  return kIntegrationFunctionPointCloudSupportedTypes.count(resource_type) > 0u;
+}
+
+template <>
+bool isSupportedResourceType<IntegrationFunctionPointCloudMaplabWithExtrasAndImu>(
     const backend::ResourceType& resource_type) {
   return kIntegrationFunctionPointCloudSupportedTypes.count(resource_type) > 0u;
 }

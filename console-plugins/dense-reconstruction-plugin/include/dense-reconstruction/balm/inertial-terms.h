@@ -4,6 +4,7 @@
 #include "dense-reconstruction/balm/state-buffer.h"
 #include "dense-reconstruction/balm/inertial-error-term.h"
 #include "dense-reconstruction/balm/common.h"
+#include "dense-reconstruction/balm/test-jac.h"
 
 #include <Eigen/Core>
 #include <aslam/common/pose-types.h>
@@ -118,6 +119,14 @@ void InertialErrorTerm::IntegrateStateAndCovariance(
   for (int i = 0; i < imu_data.cols() - 1; ++i) {
     CHECK_GE(imu_timestamps(0, i + 1), imu_timestamps(0, i))
         << "IMU measurements not properly ordered";
+    if (imu_timestamps(0, i + 1) == imu_timestamps(0, i)) {
+      // LOG(WARNING) << "Two IMU measurements have the same timestamp! t_i = " << imu_timestamps(0, i) << " t_i+1 = " << imu_timestamps(0, i + 1) << " i = " << i;
+      CHECK((imu_data.col(i) == imu_data.col(i + 1)))
+          << "Two IMU measurements have the same timestamp and NOT the same data!";
+      //continue;
+    }
+    //CHECK(!(imu_timestamps(0, i + 1) == imu_timestamps(0, i)))
+    //    << "Two IMU measurements have the same timestamp!";
 
     const Eigen::Block<
         InertialStateVector, kGyroBiasBlockSize, 1>
@@ -174,9 +183,6 @@ bool InertialErrorTerm::Evaluate(
     kIdxAccBiasTo
   };
   // extract subvectors from parameters
-  if (!eval_jac) {
-    LOG(INFO) << "CP 6";
-  }
     Eigen::Vector4d q_I_M_from = parameters.block<4, 1>(0, 0);
     Eigen::Vector3d b_g_from = parameters.block<3, 1>(kStateGyroBiasOffset, 0);
     Eigen::Vector3d v_M_I_from = parameters.block<3, 1>(kStateVelocityOffset, 0);
@@ -188,9 +194,6 @@ bool InertialErrorTerm::Evaluate(
     Eigen::Vector3d v_M_I_to = parameters.block<3, 1>(kStateSize + kStateVelocityOffset, 0);
     Eigen::Vector3d b_a_to = parameters.block<3, 1>(kStateSize + kStateAccelBiasOffset, 0);
     Eigen::Vector3d p_M_I_to = parameters.block<3, 1>(kStateSize + kStatePositionOffset, 0);
-    if (!eval_jac) {
-    LOG(INFO) << "CP 7";
-  }
     // print parameters with //LOG(INFO)
     //LOG(INFO) << "q_I_M_from: " << q_I_M_from;
     //LOG(INFO) << "b_g_from: " << b_g_from;
@@ -229,40 +232,28 @@ bool InertialErrorTerm::Evaluate(
     // Reuse a previous integration if the linearization point hasn't changed.
     const bool cache_is_valid = false; //integration_cache_.valid &&
                                 //(integration_cache_.begin_state == begin_state);
-if (!eval_jac) {
-    LOG(INFO) << "CP 8";
-  }
     if (!cache_is_valid) {
       integration_cache_.begin_state = begin_state;
-      if (!eval_jac) {
-    LOG(INFO) << "CP 9";
-  }
       IntegrateStateAndCovariance(
           integration_cache_.begin_state, imu_timestamps_, imu_data_,
           &integration_cache_.end_state, &integration_cache_.phi_accum,
           &integration_cache_.Q_accum);
-        if (!eval_jac) {
-    LOG(INFO) << "CP 10";
-  }
 
       integration_cache_.L_cholesky_Q_accum.compute(integration_cache_.Q_accum);
       integration_cache_.valid = true;
-  }/*
-  LOG(INFO) << "q_I_M_to: " << q_I_M_to;
-  LOG(INFO) << "q_I_M_to int: " << integration_cache_.end_state.q_I_M;
-  LOG(INFO) << "b_g_to: " << b_g_to;
-  LOG(INFO) << "b_g_to int: " << integration_cache_.end_state.b_g;
-  LOG(INFO) << "v_M_I_to: " << v_M_I_to;
-  LOG(INFO) << "v_M_I_to int: " << integration_cache_.end_state.v_M;
-  LOG(INFO) << "b_a_to: " << b_a_to;
-  LOG(INFO) << "b_a_to int: " << integration_cache_.end_state.b_a;
-  LOG(INFO) << "p_M_I_to: " << p_M_I_to;
-  LOG(INFO) << "p_M_I_to int: " << integration_cache_.end_state.p_M_I;
-  */
+  }
+  LOG(INFO) << "q_I_M_to: " << q_I_M_to.transpose();
+  LOG(INFO) << "q_I_M_to int: " << integration_cache_.end_state.q_I_M.transpose();
+  LOG(INFO) << "b_g_to: " << b_g_to.transpose();
+  LOG(INFO) << "b_g_to int: " << integration_cache_.end_state.b_g.transpose();
+  LOG(INFO) << "v_M_I_to: " << v_M_I_to.transpose();
+  LOG(INFO) << "v_M_I_to int: " << integration_cache_.end_state.v_M.transpose();
+  LOG(INFO) << "b_a_to: " << b_a_to.transpose();
+  LOG(INFO) << "b_a_to int: " << integration_cache_.end_state.b_a.transpose();
+  LOG(INFO) << "p_M_I_to: " << p_M_I_to.transpose();
+  LOG(INFO) << "p_M_I_to int: " << integration_cache_.end_state.p_M_I.transpose();
+  
   CHECK(integration_cache_.valid);
-    if (!eval_jac) {
-        LOG(INFO) << "CP 11";
-    }
 
   if (true) {
     Eigen::Quaterniond quaternion_to;
@@ -271,18 +262,10 @@ if (!eval_jac) {
     Eigen::Quaterniond quaternion_integrated;
     quaternion_integrated.coeffs() = integration_cache_.end_state.q_I_M;
 
-    if (!eval_jac) {
-    LOG(INFO) << "CP 12";
-  }
-
     Eigen::Vector4d delta_q;
     common::positiveQuaternionProductJPL(
         q_I_M_to, quaternion_integrated.inverse().coeffs(), delta_q);
     CHECK_GE(delta_q(3), 0.);
-
-    if (!eval_jac) {
-    LOG(INFO) << "CP 13";
-  }
 
     residuals <<
         // While our quaternion representation is Hamilton, underlying memory
@@ -293,13 +276,8 @@ if (!eval_jac) {
         b_a_to - integration_cache_.end_state.b_a,
         p_M_I_to - integration_cache_.end_state.p_M_I;
 
-    if (!eval_jac) {
-    LOG(INFO) << "CP 14";
-  }
     integration_cache_.L_cholesky_Q_accum.matrixL().solveInPlace(residuals);
-    if (!eval_jac) {
-    LOG(INFO) << "CP 15";
-  }
+
   } else {
     LOG(WARNING)
         << "Skipped residual calculation, since residual pointer was NULL";
@@ -339,9 +317,6 @@ if (!eval_jac) {
     jacobian_from = J_begin;
     jacobian_to = J_end;
   }
-  if (!eval_jac) {
-    LOG(INFO) << "CP 16";
-  }
   return true;
 }
 
@@ -363,8 +338,6 @@ int addInertialTermsForEdges(
     // construct optimization_state_buffer
     buffer->importKeyframePosesOfMissions(*map, {mission_id});
 
-    // gravity magnitude
-    const double gravity_magnitude = 9.81; // TODO: change later
         
     int num_residuals_added = 0;
     for (pose_graph::EdgeId edge_id : edges) {
@@ -376,7 +349,7 @@ int addInertialTermsForEdges(
                 imu_sigmas.gyro_noise_density,
                 imu_sigmas.gyro_bias_random_walk_noise_density,
                 imu_sigmas.acc_noise_density,
-                imu_sigmas.acc_bias_random_walk_noise_density, gravity_magnitude));
+                imu_sigmas.acc_bias_random_walk_noise_density, imu_sensor.getGravityMagnitudeMps2()));
         vi_map::Vertex& vertex_from = map->getVertex(inertial_edge.from());
         vi_map::Vertex& vertex_to = map->getVertex(inertial_edge.to());
         // vertex pose in JPL quaternion format
@@ -386,95 +359,12 @@ int addInertialTermsForEdges(
         residual_block_set.addInertialResidualBlock(
             inertial_term_cost, {vertex_from_q_IM__M_p_MI, vertex_from.getGyroBiasMutable(),
             vertex_from.get_v_M_Mutable(), vertex_from.getAccelBiasMutable(),
-            vertex_from_q_IM__M_p_MI, vertex_to.getGyroBiasMutable(),
+            vertex_to_q_IM__M_p_MI, vertex_to.getGyroBiasMutable(),
             vertex_to.get_v_M_Mutable(), vertex_to.getAccelBiasMutable()}, edge_id);
         ++num_residuals_added;
     }
     return num_residuals_added;
 
-}
-
-void allocateMemoryForPointerArrays(std::vector<double**>& jacobians_ptr, 
-    std::vector<double*>& residuals_ptr, 
-    std::vector<double**>& parameters_ptr, 
-    size_t size) {
-    enum {
-        kIdxPoseFrom,
-        kIdxGyroBiasFrom,
-        kIdxVelocityFrom,
-        kIdxAccBiasFrom,
-        kIdxPoseTo,
-        kIdxGyroBiasTo,
-        kIdxVelocityTo,
-        kIdxAccBiasTo
-    };
-    jacobians_ptr.resize(size);
-    residuals_ptr.resize(size);
-    parameters_ptr.resize(size);
-    for (size_t i = 0; i < size; ++i) {
-        jacobians_ptr[i] = new double*[8];
-        CHECK(jacobians_ptr[i] != NULL);
-        residuals_ptr[i] = new double[kErrorStateSize];
-        CHECK(residuals_ptr[i] != NULL);
-        parameters_ptr[i] = new double*[8];
-        CHECK(parameters_ptr[i] != NULL);
-        jacobians_ptr[i][kIdxPoseFrom] = new double[kErrorStateSize * kStatePoseBlockSize];
-        CHECK(jacobians_ptr[i][kIdxPoseFrom] != NULL);
-        jacobians_ptr[i][kIdxGyroBiasFrom] = new double[kErrorStateSize * kGyroBiasBlockSize];
-        CHECK(jacobians_ptr[i][kIdxGyroBiasFrom] != NULL);
-        jacobians_ptr[i][kIdxVelocityFrom] = new double[kErrorStateSize * kVelocityBlockSize];
-        CHECK(jacobians_ptr[i][kIdxVelocityFrom] != NULL);
-        jacobians_ptr[i][kIdxAccBiasFrom] = new double[kErrorStateSize * kAccelBiasBlockSize];
-        CHECK(jacobians_ptr[i][kIdxAccBiasFrom] != NULL);
-        jacobians_ptr[i][kIdxPoseTo] = new double[kErrorStateSize * kStatePoseBlockSize];
-        CHECK(jacobians_ptr[i][kIdxPoseTo] != NULL);
-        jacobians_ptr[i][kIdxGyroBiasTo] = new double[kErrorStateSize * kGyroBiasBlockSize];
-        CHECK(jacobians_ptr[i][kIdxGyroBiasTo] != NULL);
-        jacobians_ptr[i][kIdxVelocityTo] = new double[kErrorStateSize * kVelocityBlockSize];
-        CHECK(jacobians_ptr[i][kIdxVelocityTo] != NULL);
-        jacobians_ptr[i][kIdxAccBiasTo] = new double[kErrorStateSize * kAccelBiasBlockSize];
-        CHECK(jacobians_ptr[i][kIdxAccBiasTo] != NULL);
-
-        parameters_ptr[i][kIdxPoseFrom] = new double[kStatePoseBlockSize];
-        CHECK(parameters_ptr[i][kIdxPoseFrom] != NULL);
-        parameters_ptr[i][kIdxGyroBiasFrom] = new double[kGyroBiasBlockSize];
-        CHECK(parameters_ptr[i][kIdxGyroBiasFrom] != NULL);
-        parameters_ptr[i][kIdxVelocityFrom] = new double[kVelocityBlockSize];
-        CHECK(parameters_ptr[i][kIdxVelocityFrom] != NULL);
-        parameters_ptr[i][kIdxAccBiasFrom] = new double[kAccelBiasBlockSize];
-        CHECK(parameters_ptr[i][kIdxAccBiasFrom] != NULL);
-        parameters_ptr[i][kIdxPoseTo] = new double[kStatePoseBlockSize];
-        CHECK(parameters_ptr[i][kIdxPoseTo] != NULL);
-        parameters_ptr[i][kIdxGyroBiasTo] = new double[kGyroBiasBlockSize];
-        CHECK(parameters_ptr[i][kIdxGyroBiasTo] != NULL);
-        parameters_ptr[i][kIdxVelocityTo] = new double[kVelocityBlockSize];
-        CHECK(parameters_ptr[i][kIdxVelocityTo] != NULL);
-        parameters_ptr[i][kIdxAccBiasTo] = new double[kAccelBiasBlockSize];
-    }
-}
-
-void deallocateMemoryForPointerArrays(std::vector<double**>& jacobians_ptr, std::vector<double*>& residuals_ptr, std::vector<double**>& parameters_ptr, size_t size) {
-    for (size_t i = 0; i < size; ++i) {
-        delete[] jacobians_ptr[i][0];
-        delete[] jacobians_ptr[i][1];
-        delete[] jacobians_ptr[i][2];
-        delete[] jacobians_ptr[i][3];
-        delete[] jacobians_ptr[i][4];
-        delete[] jacobians_ptr[i][5];
-        delete[] jacobians_ptr[i][6];
-        delete[] jacobians_ptr[i][7];
-        delete[] parameters_ptr[i][0];
-        delete[] parameters_ptr[i][1];
-        delete[] parameters_ptr[i][2];
-        delete[] parameters_ptr[i][3];
-        delete[] parameters_ptr[i][4];
-        delete[] parameters_ptr[i][5];
-        delete[] parameters_ptr[i][6];
-        delete[] parameters_ptr[i][7];
-        delete[] jacobians_ptr[i];
-        delete[] residuals_ptr[i];
-        delete[] parameters_ptr[i];
-    }
 }
 
 
@@ -494,7 +384,6 @@ void evaluateInertialJacobian(
     CHECK(num_vertices * kStateSize == parameters_full.rows());
 
     for (int i = 1; i < num_vertices; i++) {
-        LOG(INFO) << "num_vert = " << num_vertices;
         LOG(INFO) << "i = " << i;
         Eigen::Matrix<double, kErrorStateSize, kUpdateSize> jacobian_from; // = jacobian_full.block<kErrorStateSize, kUpdateSize>(i * kFullResidualSize, (i - 1) * kUpdateSize);
         Eigen::Matrix<double, kErrorStateSize, kUpdateSize> jacobian_to; // = jacobian_full.block<kErrorStateSize, kUpdateSize>(i * kFullResidualSize, i * kUpdateSize);
@@ -578,45 +467,30 @@ void calculateResiduals(
     Eigen::Matrix<double, Eigen::Dynamic, 1>& residuals_full, 
     Eigen::Matrix<double, Eigen::Dynamic, 1>& parameters_full) {
     
-    LOG(INFO) << "CP 1";
     // check that the size of the matrices is correct
     // extract the number of vertices from the map
     size_t num_vertices = map->numVertices();
     CHECK(num_vertices * kFullResidualSize == residuals_full.rows());
     CHECK(num_vertices * kStateSize == parameters_full.rows());
-    LOG(INFO) << "CP 2";
     // create dummy jacobians
     Eigen::Matrix<double, kErrorStateSize, kUpdateSize> jacobian_from;
     jacobian_from.setZero();
     Eigen::Matrix<double, kErrorStateSize, kUpdateSize> jacobian_to;
     jacobian_to.setZero();
-    LOG(INFO) << "CP 3";
     for (int i = 1; i < num_vertices; i++) {
-        LOG(INFO) << "num_vert = " << num_vertices;
         LOG(INFO) << "i = " << i;
-        LOG(INFO) << "CP 4";
         Eigen::Matrix<double, kErrorStateSize, 1> residuals = residuals_full.block<kErrorStateSize, 1>(i * kFullResidualSize, 0);
         Eigen::Matrix<double, 2 * kStateSize, 1> parameters = parameters_full.block<2* kStateSize, 1>((i - 1) * kStateSize, 0);
         //std::vector<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> parameters(8);
         // get residual block
         const ResidualBlock& residual_block = residual_block_set.getInertialResidualBlocks(i-1); // i - 1 since the iteration starts at 1 and the index starts at 0
-        LOG(INFO) << "CP 5";
         // compute residuals
         residual_block.cost_function->Evaluate(parameters, residuals, jacobian_from, jacobian_to, false);
-        LOG(INFO) << "CP 17";
         residuals_full.block<kErrorStateSize, 1>(i * kErrorStateSize, 0) = residuals;
     }
 } 
 
 void checkBuffer(OptimizationStateBuffer* buffer, vi_map::VIMap* map) {
-    //CHECK(buffer->vertex_q_IM__M_p_MI_JPL_.cols() > 0);
-    //CHECK(buffer->vertex_q_IM__M_p_MI_JPL_.rows() == 7);
-    //CHECK(buffer->vertex_q_IM__M_p_MI_JPL_.cols() == buffer->vertex_id_to_vertex_idx_.size());
-
-    // check that every vertex in the buffer is in the map
-    //for (const pose_graph::VertexId& vertex_id : buffer->vertex_id_to_vertex_idx_) {
-    //    CHECK(map->hasVertex(vertex_id));
-    //}
     // check that every vertex in the map is in the buffer
     pose_graph::VertexIdList all_vertices;
     map->getAllVertexIds(&all_vertices);

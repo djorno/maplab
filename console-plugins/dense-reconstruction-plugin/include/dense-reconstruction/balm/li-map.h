@@ -1,6 +1,9 @@
 #ifndef BALM_LI_MAP_H_
 #define BALM_LI_MAP_H_
 
+#include "dense-reconstruction/balm/inertial-error-term.h"
+#include "dense-reconstruction/balm/inertial-terms.h"
+
 #include <Eigen/Core>
 #include <aslam/common/pose-types.h>
 #include <gflags/gflags.h>
@@ -66,7 +69,11 @@ namespace li_map {
                             const std::vector<int64_t>& lidar_vertex_timestamps,
                             const std::vector<int64_t>& imu_timestamps,
                             const Eigen::Matrix<int64_t, 1, Eigen::Dynamic>& imu_timestamps_mat,
-                            const aslam::TransformationVector& poses_G_S, const vi_map::MissionId& mission_id, 
+                            const aslam::TransformationVector& poses_M_I, 
+                            const std::vector<Eigen::Vector3d>& keyframe_velocities,
+                            const std::vector<Eigen::Vector3d>& keyframe_gyro_bias,
+                            const std::vector<Eigen::Vector3d>& keyframe_acc_bias,
+                            const vi_map::MissionId& mission_id, 
                             vi_map::VIMap& li_map, 
                             vi_map::VIMapManager::MapWriteAccess& vi_map) {
         // This function interpolates the bias estimates to the LiDAR keyframe timestamps
@@ -88,16 +95,6 @@ namespace li_map {
         // extract a reference aslam::VisualNFrame::Ptr visual_n_frame from the first vertex
         pose_graph::VertexIdList vi_vertex_ids;
         vi_map->getAllVertexIdsInMissionAlongGraph(mission_id, &vi_vertex_ids);
-        aslam::NCamera::ConstPtr n_cameras = vi_map->getVertex(*vi_vertex_ids.begin()).getNCameras();
-        // create a visual n frame
-        // Create a non-const shared_ptr 
-        //std::shared_ptr<aslam::NCamera> n_cameras_shared(n_cameras); 
-
-        // Create the VisualNFrame object
-        //aslam::VisualNFrame::Ptr visual_n_frame(new aslam::VisualNFrame(n_cameras_shared));
-        // aslam::VisualNFrame::Ptr visual_n_frame(new aslam::VisualNFrame(n_cameras));
-        // CHECK(visual_n_frame != nullptr);
-
 
         // get the closest indices of the VI vertices to the LiDAR keyframe timestamps using findFirstLargerTimestampIndices
         std::vector<size_t> closest_indices_vert(num_lidar_vertices);
@@ -120,12 +117,34 @@ namespace li_map {
             // get the closest indices of the VI vertices to the LiDAR keyframe timestamps
             size_t closest_index_vert = closest_indices_vert[i];
             size_t closest_index_imu = closest_indices_imu[i];
-
+            // get the LiDAR keyframe timestamp
+            int64_t timestamp_lidar = lidar_vertex_timestamps[i];
             // check edge cases
             CHECK_GT(closest_index_vert, 0);
             CHECK_GT(closest_index_imu, 0);
             CHECK_LT(closest_index_vert, vi_vertex_timestamps.size());
             CHECK_LT(closest_index_imu, imu_timestamps.size());
+
+            // Interpolate the IMU data using linear interpolation
+            int64_t timestamp_prev_imu = imu_timestamps[closest_index_imu - 1];
+            int64_t timestamp_next_imu = imu_timestamps[closest_index_imu];
+            // get the previous and current IMU data
+            Eigen::Matrix<double, 6, 1> imu_data_prev = imu_data.block(0, closest_index_imu - 1, 6, 1);
+            Eigen::Matrix<double, 6, 1> imu_data_next = imu_data.block(0, closest_index_imu, 6, 1);
+
+            CHECK_GE(timestamp_lidar, timestamp_prev_imu);
+            CHECK_LE(timestamp_lidar, timestamp_next_imu);
+            CHECK(!(timestamp_lidar == timestamp_next_imu)) << "Timestamps are equal, should not be possible!";
+            
+            if (timestamp_lidar == timestamp_prev_imu) {
+                imu_data_interpolated = imu_data_prev;
+            }
+            else {
+                double timestamp_lidar_double = static_cast<double>(timestamp_lidar);
+                double timestamp_prev_imu_double = static_cast<double>(timestamp_prev_imu);
+                double timestamp_next_imu_double = static_cast<double>(timestamp_next_imu);
+                imu_data_interpolated = imu_data_prev + (imu_data_next - imu_data_prev) * (timestamp_lidar_double - timestamp_prev_imu_double) / (timestamp_next_imu_double - timestamp_prev_imu_double);
+            }
 
             // Interpolate the bias estimates using linear interpolation
             // get the previous and current bias estimates
@@ -137,18 +156,14 @@ namespace li_map {
             // get the previous and current timestamps
             int64_t timestamp_prev = vi_vertex_timestamps[closest_index_vert - 1];
             int64_t timestamp_next = vi_vertex_timestamps[closest_index_vert];
-            // get the LiDAR keyframe timestamp
-            int64_t timestamp_lidar = lidar_vertex_timestamps[i];
             // interpolate the bias estimates using linear interpolation
             CHECK_GE(timestamp_lidar, timestamp_prev);
             CHECK_LE(timestamp_lidar, timestamp_next);
+            CHECK(!(timestamp_lidar == timestamp_next)) << "Timestamps are equal, should not be possible!";
+
             if (timestamp_lidar == timestamp_prev) {
                 bias_data_interpolated = bias_data_prev;
-                velocity_data_interpolated = velocity_data_prev;
-            }
-            else if (timestamp_lidar == timestamp_next) {
-                bias_data_interpolated = bias_data_next;
-                velocity_data_interpolated = velocity_data_next;
+                velocity_data_interpolated = keyframe_velocities[i];
             }
             else {
                 // caste timestamps to double
@@ -156,31 +171,22 @@ namespace li_map {
                 double timestamp_prev_double = static_cast<double>(timestamp_prev);
                 double timestamp_next_double = static_cast<double>(timestamp_next);
                 bias_data_interpolated = bias_data_prev + (bias_data_next - bias_data_prev) * (timestamp_lidar_double - timestamp_prev_double) / (timestamp_next_double - timestamp_prev_double);
+                //LOG(INFO) << "Bias data prev: " << bias_data_prev;
+                //LOG(INFO) << "Bias data next: " << bias_data_next;
+                //LOG(INFO) << "Bias data interpolated: " << bias_data_interpolated;
+                //bias_data_interpolated << keyframe_gyro_bias[i], keyframe_acc_bias[i];
+                //LOG(INFO) << "Bias data from int: " << bias_data_interpolated;
                 // Interpolate the velocity estimates using linear interpolation
-                velocity_data_interpolated = velocity_data_prev + (velocity_data_next - velocity_data_prev) * (timestamp_lidar_double - timestamp_prev_double) / (timestamp_next_double - timestamp_prev_double);
+                velocity_data_interpolated = keyframe_velocities[i];
+                //velocity_data_interpolated = velocity_data_prev + (velocity_data_next - velocity_data_prev) * (timestamp_lidar_double - timestamp_prev_double) / (timestamp_next_double - timestamp_prev_double);
             }
-            // Interpolate the IMU data using linear interpolation
-            int64_t timestamp_prev_imu = imu_timestamps[closest_index_imu - 1];
-            int64_t timestamp_next_imu = imu_timestamps[closest_index_imu];
-            // get the previous and current IMU data
-            Eigen::Matrix<double, 6, 1> imu_data_prev = imu_data.block(0, closest_index_imu - 1, 6, 1);
-            Eigen::Matrix<double, 6, 1> imu_data_next = imu_data.block(0, closest_index_imu, 6, 1);
-            
-            if (timestamp_lidar == timestamp_prev_imu) {
-                imu_data_interpolated = imu_data_prev;
-            }
-            else if (timestamp_lidar == timestamp_next_imu) {
-                imu_data_interpolated = imu_data_next;
-            }
-            else {
-                double timestamp_lidar_double = static_cast<double>(timestamp_lidar);
-                double timestamp_prev_imu_double = static_cast<double>(timestamp_prev_imu);
-                double timestamp_next_imu_double = static_cast<double>(timestamp_next_imu);
-                imu_data_interpolated = imu_data_prev + (imu_data_next - imu_data_prev) * (timestamp_lidar_double - timestamp_prev_imu_double) / (timestamp_next_imu_double - timestamp_prev_imu_double);
-            }
+            // log imu data interpolated
+            //LOG(INFO) << "IMU data prev: " << imu_data_prev;
+            //LOG(INFO) << "IMU data next: " << imu_data_next;
+            //LOG(INFO) << "IMU data interpolated: " << imu_data_interpolated;
             // create a new vertex
             pose_graph::VertexId vertex_id = aslam::createRandomId<pose_graph::VertexId>();
-            vi_map::Vertex::UniquePtr vertex = aligned_unique<vi_map::Vertex>(vertex_id, bias_data_interpolated, velocity_data_interpolated, mission_id, poses_G_S[i]);//, n_cameras);
+            vi_map::Vertex::UniquePtr vertex = aligned_unique<vi_map::Vertex>(vertex_id, bias_data_interpolated, velocity_data_interpolated, mission_id, poses_M_I[i]);//, n_cameras);
             // add the vertex to the LiMap
             li_map.addVertex(std::move(vertex));
             // save the vertex id
@@ -203,6 +209,8 @@ namespace li_map {
                 edge_imu_data.block(0, 1, 6, range - 1) = imu_data.block(0, closest_indices_imu[i - 1], 6, range - 1);
                 edge_imu_timestamps.block(0, 0, 1, 1) = Eigen::Matrix<int64_t, 1, 1>(lidar_vertex_timestamps[i - 1]); 
                 edge_imu_timestamps.block(0, 1, 1, range - 1) = imu_timestamps_mat.block(0, closest_indices_imu[i - 1], 1, range - 1);
+
+                // create a new edge
                 vi_map::Edge* edge(new vi_map::ViwlsEdge(
                 edge_id, (*vertex_ids)[i - 1], (*vertex_ids)[i], edge_imu_timestamps,
                 edge_imu_data));
@@ -215,16 +223,21 @@ namespace li_map {
         }
     }
 
-    void buildLIMap(const vi_map::MissionIdList& mission_ids, vi_map::VIMapManager::MapWriteAccess& vi_map, const aslam::TransformationVector& poses_G_S, const std::vector<int64_t>& lidar_keyframe_timestamps, vi_map::VIMap& li_map){
+    void buildLIMap(const vi_map::MissionIdList& mission_ids, 
+            vi_map::VIMapManager::MapWriteAccess& vi_map, 
+            const aslam::TransformationVector& poses_M_I, 
+            const std::vector<Eigen::Vector3d> keyframe_velocities, 
+            const std::vector<Eigen::Vector3d> keyframe_gyro_bias, 
+            const std::vector<Eigen::Vector3d> keyframe_acc_bias, 
+            const std::vector<int64_t>& lidar_keyframe_timestamps, 
+            vi_map::VIMap& li_map){
         // IMU data extraction and preparation for BALM
         pose_graph::EdgeIdList vi_edges;
         vi_map->getAllEdgeIdsInMissionAlongGraph(
             mission_ids[0], pose_graph::Edge::EdgeType::kViwls, &vi_edges);
 
         const vi_map::Imu& imu_sensor = li_map.getMissionImu(mission_ids[0]);
-        const vi_map::ImuSigmas& imu_sigmas = imu_sensor.getImuSigmas();        
-
-        // const double gravity_magnitude = 9.81;
+        const vi_map::ImuSigmas& imu_sigmas = imu_sensor.getImuSigmas();
 
         // count the total amount of imu data points 
         int num_imu_data = 0;
@@ -270,14 +283,6 @@ namespace li_map {
             // Extract IMU timestamps and concatenate it into a matrix using Eigen block
             imu_timestamps_mat.block(0, num_imu_data, 1, num_cols) = inertial_edge.getImuTimestamps();
             num_imu_data += num_cols;
-
-        //   (inertial_edge.getImuData(), // 6xN matrix: accx accy accz gyrox gyroy gyroz
-        //           inertial_edge.getImuTimestamps(), // Nx vector nanosecond timestamp
-        //           imu_sigmas.gyro_noise_density,
-        //           imu_sigmas.gyro_bias_random_walk_noise_density,
-        //           imu_sigmas.acc_noise_density,
-        //           imu_sigmas.acc_bias_random_walk_noise_density,
-        //           gravity_magnitude);
             // if we are in the first iteration, we need to extract the initial gyro and acc bias estimates
             if (!num_vertices) {
                 // Extract gyro and acc bias estimates and concatenate it into a matrix using Eigen block
@@ -310,22 +315,14 @@ namespace li_map {
         */ 
 
        // sync IMU data to LiDAR data
-       /*
-       Steps:
-       1. Find the VI vertex that is closest in time to the LiDAR keyframe
-       2. Interpolate the Bias estimates to the LiDAR keyframe
-       3. Find the IMU data points that are closest in time to the LiDAR keyframe
-       4. Interpolate the IMU data to the LiDAR keyframe
-       */
-        // 1. Find the VI vertex that is closest in time to the LiDAR keyframe
-        std::vector<size_t> closest_indices(lidar_keyframe_timestamps.size());
-        findFirstLargerTimestampIndices(vi_vertex_timestamps, lidar_keyframe_timestamps, closest_indices);
-        // 2. Interpolate the Bias estimates to the LiDAR keyframe
-        Eigen::Matrix<double, 6, Eigen::Dynamic> interpolated_bias;
-        //Eigen::Matrix<double, 3, Eigen::Dynamic> interpolated_acc_bias;
-        interpolated_bias.resize(6, lidar_keyframe_timestamps.size());
-        //interpolated_acc_bias.resize(3, lidar_keyframe_timestamps.size());
-        buildVerticesAndEdges(bias_data, imu_data, velocity_data, vi_vertex_timestamps, lidar_keyframe_timestamps, imu_timestamps, imu_timestamps_mat, poses_G_S, mission_ids[0], li_map, vi_map);
+        buildVerticesAndEdges(bias_data, 
+                imu_data, velocity_data, 
+                vi_vertex_timestamps, 
+                lidar_keyframe_timestamps, 
+                imu_timestamps, imu_timestamps_mat, 
+                poses_M_I, keyframe_velocities, 
+                keyframe_gyro_bias, keyframe_acc_bias, 
+                mission_ids[0], li_map, vi_map);
     }
 
 }  // namespace inertial

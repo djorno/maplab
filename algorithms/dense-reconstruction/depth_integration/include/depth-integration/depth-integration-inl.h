@@ -204,9 +204,14 @@ void integrateAllFrameDepthResourcesOfType(
               continue;
             }
 
+
             VLOG(3) << "Found point cloud.";
+            aslam::Transformation T_M_B;
+            Eigen::Vector3d v_M_B;
+            Eigen::Vector3d gb_B;
+            Eigen::Vector3d ab_B;
             integratePointCloud(
-                T_G_C, timestamp_ns, mission_id, vertex_counter, point_cloud,
+                T_G_C, T_M_B, v_M_B, gb_B, ab_B, timestamp_ns, mission_id, vertex_counter, point_cloud,
                 integration_function);
             continue;
           }
@@ -318,6 +323,10 @@ void integrateAllSensorDepthResourcesOfType(
 
       // Get transformation between reference (e.g. IMU) and sensor.
       aslam::Transformation T_B_S = sensor_manager.getSensor_T_B_S(sensor_id);
+      // log
+      LOG(INFO) << "Transform between sensor and reference frame: "
+                << T_B_S.getPosition().transpose() << " "
+                << T_B_S.getRotation().toImplementation().coeffs().transpose();
 
       // Get the sensor type, as cameras and LiDARs are treated differently.
       vi_map::SensorType sensor_type = sensor_manager.getSensorType(sensor_id);
@@ -420,8 +429,12 @@ void integrateAllSensorDepthResourcesOfType(
 
       // Interpolate poses for every resource.
       aslam::TransformationVector poses_M_B;
+      std::vector<Eigen::Vector3d> velocities_M_B;
+      std::vector<Eigen::Vector3d> gyro_biases;
+      std::vector<Eigen::Vector3d> accel_biases;
+
       pose_interpolator.getPosesAtTime(
-          vi_map, mission_id, resource_timestamps, &poses_M_B);
+          vi_map, mission_id, resource_timestamps, &poses_M_B, &velocities_M_B, &gyro_biases, &accel_biases);
 
       // Retrieve and integrate all resources.
       idx = 0u;
@@ -455,6 +468,9 @@ void integrateAllSensorDepthResourcesOfType(
         CHECK_EQ(timestamp_ns, resource_timestamps[idx]);
         const aslam::Transformation& T_M_B = poses_M_B[idx];
         const aslam::Transformation T_G_S = T_G_M * T_M_B * T_B_S;
+        const Eigen::Vector3d& v_M_B = velocities_M_B[idx];
+        const Eigen::Vector3d& gb_B = gyro_biases[idx];
+        const Eigen::Vector3d& ab_B = accel_biases[idx];
 
         // Increment here already since we might not get the change later.
         const size_t counter = idx;
@@ -587,7 +603,7 @@ void integrateAllSensorDepthResourcesOfType(
                     << num_removed_points << " points removed after filter "
                     << "conditions from the sensor yaml.";
             integratePointCloud(
-                T_G_S, timestamp_ns, mission_id, counter, point_cloud,
+                T_G_S, T_M_B, v_M_B, gb_B, ab_B, timestamp_ns, mission_id, counter, point_cloud,
                 integration_function);
             continue;
           }
