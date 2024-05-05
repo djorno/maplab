@@ -64,7 +64,6 @@ namespace li_map {
 
     void buildVerticesAndEdges(const Eigen::Matrix<double, 6, Eigen::Dynamic>& bias_data, 
                             const Eigen::Matrix<double, 6, Eigen::Dynamic>& imu_data,
-                            const Eigen::Matrix<double, 3, Eigen::Dynamic>& velocity_data,
                             const std::vector<int64_t>& vi_vertex_timestamps, 
                             const std::vector<int64_t>& lidar_vertex_timestamps,
                             const std::vector<int64_t>& imu_timestamps,
@@ -88,7 +87,6 @@ namespace li_map {
         CHECK_EQ(bias_data.cols(), vi_vertex_timestamps.size());
         // check if the bias data and timestamps are not empty
         CHECK_GT(bias_data.cols(), 0);
-        CHECK_GT(velocity_data.cols(), 0);
         CHECK_GT(vi_vertex_timestamps.size(), 0);
         CHECK_GT(num_lidar_vertices, 0);
 
@@ -120,8 +118,8 @@ namespace li_map {
             // get the LiDAR keyframe timestamp
             int64_t timestamp_lidar = lidar_vertex_timestamps[i];
             // check edge cases
-            CHECK_GT(closest_index_vert, 0);
-            CHECK_GT(closest_index_imu, 0);
+            CHECK_GE(closest_index_vert, 0);
+            CHECK_GE(closest_index_imu, 0);
             CHECK_LT(closest_index_vert, vi_vertex_timestamps.size());
             CHECK_LT(closest_index_imu, imu_timestamps.size());
 
@@ -134,36 +132,40 @@ namespace li_map {
 
             CHECK_GE(timestamp_lidar, timestamp_prev_imu);
             CHECK_LE(timestamp_lidar, timestamp_next_imu);
-            CHECK(!(timestamp_lidar == timestamp_next_imu)) << "Timestamps are equal, should not be possible!";
+            CHECK(!(timestamp_lidar == timestamp_prev_imu)) << "Timestamps are equal, should not be possible!";
             
-            if (timestamp_lidar == timestamp_prev_imu) {
-                imu_data_interpolated = imu_data_prev;
+            if (timestamp_lidar == timestamp_next_imu) {
+                imu_data_interpolated = imu_data_next; // duplicates are not critical
             }
             else {
                 double timestamp_lidar_double = static_cast<double>(timestamp_lidar);
                 double timestamp_prev_imu_double = static_cast<double>(timestamp_prev_imu);
                 double timestamp_next_imu_double = static_cast<double>(timestamp_next_imu);
-                imu_data_interpolated = imu_data_prev + (imu_data_next - imu_data_prev) * (timestamp_lidar_double - timestamp_prev_imu_double) / (timestamp_next_imu_double - timestamp_prev_imu_double);
+                double alpha = (timestamp_lidar_double - timestamp_prev_imu_double) / (timestamp_next_imu_double - timestamp_prev_imu_double);
+                CHECK(alpha > 0.0);
+                CHECK(alpha < 1.0);
+                //imu_data_interpolated = imu_data_prev + (imu_data_next - imu_data_prev) * alpha;
+                imu_data_interpolated = imu_data_next;
+                //imu_data_interpolated = imu_data_prev + (imu_data_next - imu_data_prev) * (timestamp_lidar_double - timestamp_prev_imu_double) / (timestamp_next_imu_double - timestamp_prev_imu_double);
             }
 
             // Interpolate the bias estimates using linear interpolation
-            // get the previous and current bias estimates
+            // get the previous and next bias estimates
             Eigen::Matrix<double, 6, 1> bias_data_prev = bias_data.block(0, closest_index_vert - 1, 6, 1);
             Eigen::Matrix<double, 6, 1> bias_data_next = bias_data.block(0, closest_index_vert, 6, 1);
-            // get previous and current velocity estimates
-            Eigen::Matrix<double, 3, 1> velocity_data_prev = velocity_data.block(0, closest_index_vert - 1, 3, 1);
-            Eigen::Matrix<double, 3, 1> velocity_data_next = velocity_data.block(0, closest_index_vert, 3, 1);
-            // get the previous and current timestamps
+            // get the previous and next timestamps
             int64_t timestamp_prev = vi_vertex_timestamps[closest_index_vert - 1];
             int64_t timestamp_next = vi_vertex_timestamps[closest_index_vert];
             // interpolate the bias estimates using linear interpolation
             CHECK_GE(timestamp_lidar, timestamp_prev);
             CHECK_LE(timestamp_lidar, timestamp_next);
-            CHECK(!(timestamp_lidar == timestamp_next)) << "Timestamps are equal, should not be possible!";
+            CHECK(!(timestamp_lidar == timestamp_prev)) << "Timestamps are equal, should not be possible!";
 
-            if (timestamp_lidar == timestamp_prev) {
-                bias_data_interpolated = bias_data_prev;
+            if (timestamp_lidar == timestamp_next) {
+                bias_data_interpolated = bias_data_next;
+                //bias_data_interpolated << keyframe_acc_bias[i], keyframe_gyro_bias[i];
                 velocity_data_interpolated = keyframe_velocities[i];
+                
             }
             else {
                 // caste timestamps to double
@@ -171,6 +173,7 @@ namespace li_map {
                 double timestamp_prev_double = static_cast<double>(timestamp_prev);
                 double timestamp_next_double = static_cast<double>(timestamp_next);
                 bias_data_interpolated = bias_data_prev + (bias_data_next - bias_data_prev) * (timestamp_lidar_double - timestamp_prev_double) / (timestamp_next_double - timestamp_prev_double);
+                //bias_data_interpolated << keyframe_acc_bias[i], keyframe_gyro_bias[i];
                 //LOG(INFO) << "Bias data prev: " << bias_data_prev;
                 //LOG(INFO) << "Bias data next: " << bias_data_next;
                 //LOG(INFO) << "Bias data interpolated: " << bias_data_interpolated;
@@ -178,15 +181,16 @@ namespace li_map {
                 //LOG(INFO) << "Bias data from int: " << bias_data_interpolated;
                 // Interpolate the velocity estimates using linear interpolation
                 velocity_data_interpolated = keyframe_velocities[i];
-                //velocity_data_interpolated = velocity_data_prev + (velocity_data_next - velocity_data_prev) * (timestamp_lidar_double - timestamp_prev_double) / (timestamp_next_double - timestamp_prev_double);
             }
-            // log imu data interpolated
-            //LOG(INFO) << "IMU data prev: " << imu_data_prev;
-            //LOG(INFO) << "IMU data next: " << imu_data_next;
-            //LOG(INFO) << "IMU data interpolated: " << imu_data_interpolated;
+            if (bias_data_interpolated.norm() > 1) {
+                LOG(WARNING) << "Bias data issue at i: " << i << ", bias = " << bias_data_interpolated.transpose() << " at timestamp: " << timestamp_lidar;
+            }
+            if (velocity_data_interpolated.norm() > 1e1) {
+                LOG(WARNING) << "Velocity data issue at i: " << i << ", v = " << velocity_data_interpolated.transpose() << " at timestamp: " << timestamp_lidar;
+            }
             // create a new vertex
             pose_graph::VertexId vertex_id = aslam::createRandomId<pose_graph::VertexId>();
-            vi_map::Vertex::UniquePtr vertex = aligned_unique<vi_map::Vertex>(vertex_id, bias_data_interpolated, velocity_data_interpolated, mission_id, poses_M_I[i]);//, n_cameras);
+            vi_map::Vertex::UniquePtr vertex = aligned_unique<vi_map::Vertex>(vertex_id, bias_data_interpolated, velocity_data_interpolated, mission_id, poses_M_I[i]);
             // add the vertex to the LiMap
             li_map.addVertex(std::move(vertex));
             // save the vertex id
@@ -215,9 +219,6 @@ namespace li_map {
                 edge_id, (*vertex_ids)[i - 1], (*vertex_ids)[i], edge_imu_timestamps,
                 edge_imu_data));
                 li_map.addEdge(vi_map::Edge::UniquePtr(edge));
-
-                //vi_map::ViwlsEdge::UniquePtr edge = aligned_unique<vi_map::ViwlsEdge>(edge_id, (*vertex_ids)[i - 1], (*vertex_ids)[i], edge_imu_timestamp, edge_imu_data);
-                //li_map.addEdge(std::move(edge));
             }
             imu_data_interpolated_prev = imu_data_interpolated;
         }
@@ -259,13 +260,11 @@ namespace li_map {
 
         // allocate memory for gyro and acc bias estimates
         Eigen::Matrix<double, 6, Eigen::Dynamic> bias_data;
-        Eigen::Matrix<double, 3, Eigen::Dynamic> velocity_data;
         std::vector<int64_t> vi_vertex_timestamps;
 
         // set dimensions of imu data, timestamps, gyro and acc bias estimates
         imu_data.resize(6, num_imu_data);
         bias_data.resize(6, num_vertices); // 3 for acc and 3 for gyro bias
-        velocity_data.resize(3, num_vertices); // 3 for velocity
 
         imu_timestamps_mat.resize(1, num_imu_data);
 
@@ -286,21 +285,19 @@ namespace li_map {
             // if we are in the first iteration, we need to extract the initial gyro and acc bias estimates
             if (!num_vertices) {
                 // Extract gyro and acc bias estimates and concatenate it into a matrix using Eigen block
-                vi_map::Vertex& vertex_from = vi_map->getVertex(inertial_edge.from());
-                bias_data.block(0, num_vertices, 3, 1) = vertex_from.getAccelBias();
-                bias_data.block(3, num_vertices, 3, 1) = vertex_from.getGyroBias();
-                velocity_data.block(0, num_vertices, 3, 1) = vertex_from.get_v_M();
+                vi_map::Vertex& vertex = vi_map->getVertex(inertial_edge.from());
+                bias_data.block(0, num_vertices, 3, 1) = vertex.getAccelBias();
+                bias_data.block(3, num_vertices, 3, 1) = vertex.getGyroBias();
                 // Extract vertex timestamps and concatenate it using emplace_back
-                vi_vertex_timestamps.emplace_back(vertex_from.getMinTimestampNanoseconds());
+                vi_vertex_timestamps.emplace_back(vertex.getMinTimestampNanoseconds());
                 num_vertices++;
             }
             // Extract gyro and acc bias estimates and concatenate it into a matrix using Eigen block
-            vi_map::Vertex& vertex_to = vi_map->getVertex(inertial_edge.to());
-            bias_data.block(0, num_vertices, 3, 1) = vertex_to.getAccelBias();
-            bias_data.block(3, num_vertices, 3, 1) = vertex_to.getGyroBias();
-            velocity_data.block(0, num_vertices, 3, 1) = vertex_to.get_v_M();
+            vi_map::Vertex& vertex = vi_map->getVertex(inertial_edge.to());
+            bias_data.block(0, num_vertices, 3, 1) = vertex.getAccelBias();
+            bias_data.block(3, num_vertices, 3, 1) = vertex.getGyroBias();
             // Extract vertex timestamps and concatenate it using emplace_back
-            vi_vertex_timestamps.emplace_back(vertex_to.getMinTimestampNanoseconds());
+            vi_vertex_timestamps.emplace_back(vertex.getMinTimestampNanoseconds());
             num_vertices++;
         }
         // 
@@ -316,7 +313,7 @@ namespace li_map {
 
        // sync IMU data to LiDAR data
         buildVerticesAndEdges(bias_data, 
-                imu_data, velocity_data, 
+                imu_data, 
                 vi_vertex_timestamps, 
                 lidar_keyframe_timestamps, 
                 imu_timestamps, imu_timestamps_mat, 

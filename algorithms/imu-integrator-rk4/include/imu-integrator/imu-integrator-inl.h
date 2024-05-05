@@ -73,6 +73,41 @@ void ImuIntegratorRK4::integrate(
                                       ScalarType(2) * state_der3 + state_der4) /
                     ScalarType(6);
 
+    if (delta_time_seconds < 1e-8) {
+        CHECK(next_state->isApprox(current_state)) << "delta_time_seconds: " << delta_time_seconds << std::endl
+            << "current_state: " << current_state.transpose() << std::endl
+            << "next_state: " << next_state->transpose() << std::endl
+            << "state_der1: " << state_der1.transpose() << std::endl
+            << "state_der2: " << state_der2.transpose() << std::endl
+            << "state_der3: " << state_der3.transpose() << std::endl
+            << "state_der4: " << state_der4.transpose() << std::endl
+            << "imu_readings_k1: " << imu_readings_k1.transpose() << std::endl
+            << "imu_readings_k23: " << imu_readings_k23.transpose() << std::endl
+            << "imu_readings_k4: " << imu_readings_k4.transpose() << std::endl;
+    }
+    // check that the state_der is zero for the gyro and acc bias
+    const Eigen::Vector3d d11 = state_der1.template block<3, 1>(kStateGyroBiasOffset, 0);
+    const Eigen::Vector3d d12 = state_der1.template block<3, 1>(kStateAccelBiasOffset, 0);
+    const Eigen::Vector3d d21 = state_der2.template block<3, 1>(kStateGyroBiasOffset, 0);
+    const Eigen::Vector3d d22 = state_der2.template block<3, 1>(kStateAccelBiasOffset, 0);
+    const Eigen::Vector3d d31 = state_der3.template block<3, 1>(kStateGyroBiasOffset, 0);
+    const Eigen::Vector3d d32 = state_der3.template block<3, 1>(kStateAccelBiasOffset, 0);
+    const Eigen::Vector3d d41 = state_der4.template block<3, 1>(kStateGyroBiasOffset, 0);
+    const Eigen::Vector3d d42 = state_der4.template block<3, 1>(kStateAccelBiasOffset, 0);
+
+    
+    CHECK(d11.isZero(0.0001)) << "state_der1: " << state_der1.transpose() << std::endl;
+    CHECK(d12.isZero(0.0001)) << "state_der1: " << state_der1.transpose() << std::endl;
+
+    CHECK(d21.isZero(0.0001)) << "state_der2: " << state_der2.transpose() << std::endl;
+    CHECK(d22.isZero(0.0001)) << "state_der2: " << state_der2.transpose() << std::endl;
+
+    CHECK(d31.isZero(0.0001)) << "state_der3: " << state_der3.transpose() << std::endl;
+    CHECK(d32.isZero(0.0001)) << "state_der3: " << state_der3.transpose() << std::endl;
+
+    CHECK(d41.isZero(0.0001)) << "state_der4: " << state_der4.transpose() << std::endl;
+    CHECK(d42.isZero(0.0001)) << "state_der4: " << state_der4.transpose() << std::endl;
+    
   if (calculate_phi_cov) {
     next_phi->setZero();
     next_cov->setZero();

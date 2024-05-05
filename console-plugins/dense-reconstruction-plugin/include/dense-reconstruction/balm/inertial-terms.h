@@ -89,7 +89,44 @@ struct ResidualBlockSet{
     ResidualBlock& getInertialResidualBlocks(size_t i) {
         return inertial_residual_blocks[i];
     }
+    std::vector<double*>& getInertialResidualBlockParamsMutable(size_t i) {
+        return inertial_residual_blocks[i].parameter_blocks;
+    }
+    void setInertialResidualBlockParams(size_t i, std::vector<double*> parameter_blocks) {
+        inertial_residual_blocks[i].parameter_blocks = parameter_blocks;
+    }
 };
+
+void saveIntermediateResults(
+    const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>& intermediate_results,
+    ResidualBlockSet& residual_block_set){
+    size_t num_edges = residual_block_set.inertial_residual_blocks.size();
+    for (int i = 0; i < num_edges; i++) {
+        std::vector<double*>& parameter_block = residual_block_set.getInertialResidualBlockParamsMutable(i);
+        Eigen::Map<Eigen::Matrix<double, 7, 1>> map_q_IM__M_p_MI_from(parameter_block[0]);
+        Eigen::Map<Eigen::Matrix<double, 3, 1>> map_b_g_from(parameter_block[1]);
+        Eigen::Map<Eigen::Matrix<double, 3, 1>> map_v_M_I_from(parameter_block[2]);
+        Eigen::Map<Eigen::Matrix<double, 3, 1>> map_b_a_from(parameter_block[3]);
+
+        Eigen::Map<Eigen::Matrix<double, 7, 1>> map_q_IM__M_p_MI_to(parameter_block[4]);
+        Eigen::Map<Eigen::Matrix<double, 3, 1>> map_b_g_to(parameter_block[5]);
+        Eigen::Map<Eigen::Matrix<double, 3, 1>> map_v_M_I_to(parameter_block[6]);
+        Eigen::Map<Eigen::Matrix<double, 3, 1>> map_b_a_to(parameter_block[7]);
+
+        map_q_IM__M_p_MI_from.block<kStateOrientationBlockSize, 1>(0, 0) = intermediate_results.block<4, 1>(i * kStateSize, 0);
+        map_b_g_from = intermediate_results.block<3, 1>(i * kStateSize + kStateGyroBiasOffset, 0);
+        map_v_M_I_from = intermediate_results.block<3, 1>(i * kStateSize + kStateVelocityOffset, 0);
+        map_b_a_from = intermediate_results.block<3, 1>(i * kStateSize + kStateAccelBiasOffset, 0);
+        map_q_IM__M_p_MI_from.block<3, 1>(kStateOrientationBlockSize, 0) = intermediate_results.block<3, 1>(i * kStateSize + kStatePositionOffset, 0);
+
+        map_q_IM__M_p_MI_to.block<kStateOrientationBlockSize, 1>(0, 0) = intermediate_results.block<4, 1>((i + 1) * kStateSize, 0);
+        map_b_g_to = intermediate_results.block<3, 1>((i + 1) * kStateSize + kStateGyroBiasOffset, 0);
+        map_v_M_I_to = intermediate_results.block<3, 1>((i + 1) * kStateSize + kStateVelocityOffset, 0);
+        map_b_a_to = intermediate_results.block<3, 1>((i + 1) * kStateSize + kStateAccelBiasOffset, 0);
+        map_q_IM__M_p_MI_to.block<3, 1>(kStateOrientationBlockSize, 0) = intermediate_results.block<3, 1>((i + 1) * kStateSize + kStatePositionOffset, 0);
+    }
+};
+
 
 void InertialErrorTerm::IntegrateStateAndCovariance(
     const InertialState& current_state,
@@ -155,7 +192,18 @@ void InertialErrorTerm::IntegrateStateAndCovariance(
     integrator_.integrate(
         current_state_vec, debiased_imu_readings, delta_time_seconds,
         &next_state_vec, &phi, &Q);
-
+    
+    CHECK(next_state_vec.segment<kGyroBiasBlockSize>(
+            kStateGyroBiasOffset).isApprox(current_gyro_bias))
+            << "Gyro bias changed during integration!" << std::endl
+            << "current_gyro_bias: " << current_gyro_bias.transpose() << std::endl
+            << "next_gyro_bias: " << next_state_vec.segment<kGyroBiasBlockSize>(kStateGyroBiasOffset).transpose();
+    CHECK(next_state_vec.segment<kAccelBiasBlockSize>(
+            kStateAccelBiasOffset).isApprox(current_accel_bias))
+            << "Accel bias changed during integration!" << std::endl
+            << "current_accel_bias: " << current_accel_bias.transpose() << std::endl
+            << "next_accel_bias: " << next_state_vec.segment<kAccelBiasBlockSize>(kStateAccelBiasOffset).transpose();
+    
     current_state_vec = next_state_vec;
     new_Q_accum = phi * (*Q_accum) * phi.transpose() + Q;
 
@@ -230,8 +278,8 @@ bool InertialErrorTerm::Evaluate(
     begin_state.b_a = b_a_from;
     begin_state.p_M_I = p_M_I_from;
     // Reuse a previous integration if the linearization point hasn't changed.
-    const bool cache_is_valid = false; //integration_cache_.valid &&
-                                //(integration_cache_.begin_state == begin_state);
+    const bool cache_is_valid = integration_cache_.valid &&
+                                (integration_cache_.begin_state == begin_state);
     if (!cache_is_valid) {
       integration_cache_.begin_state = begin_state;
       IntegrateStateAndCovariance(
@@ -241,7 +289,28 @@ bool InertialErrorTerm::Evaluate(
 
       integration_cache_.L_cholesky_Q_accum.compute(integration_cache_.Q_accum);
       integration_cache_.valid = true;
-  }
+    }
+    else {
+        InertialState double_check_end_state;
+        double_check_end_state = integration_cache_.end_state;
+        Eigen::LLT<InertialStateCovariance> double_check_L_cholesky_Q_accum;
+        double_check_L_cholesky_Q_accum = integration_cache_.L_cholesky_Q_accum;
+        integration_cache_.begin_state = begin_state;
+        IntegrateStateAndCovariance(
+          integration_cache_.begin_state, imu_timestamps_, imu_data_,
+          &integration_cache_.end_state, &integration_cache_.phi_accum,
+          &integration_cache_.Q_accum);
+
+        integration_cache_.L_cholesky_Q_accum.compute(integration_cache_.Q_accum);
+        integration_cache_.valid = true;
+        //CHECK(double_check_L_cholesky_Q_accum.matrixL().isApprox(integration_cache_.L_cholesky_Q_accum.matrixL()));
+        CHECK(double_check_end_state.q_I_M.isApprox(integration_cache_.end_state.q_I_M));
+        CHECK(double_check_end_state.b_g.isApprox(integration_cache_.end_state.b_g));
+        CHECK(double_check_end_state.v_M.isApprox(integration_cache_.end_state.v_M));
+        CHECK(double_check_end_state.b_a.isApprox(integration_cache_.end_state.b_a));
+        CHECK(double_check_end_state.p_M_I.isApprox(integration_cache_.end_state.p_M_I));
+    }
+  /*
   LOG(INFO) << "q_I_M_to: " << q_I_M_to.transpose();
   LOG(INFO) << "q_I_M_to int: " << integration_cache_.end_state.q_I_M.transpose();
   LOG(INFO) << "b_g_to: " << b_g_to.transpose();
@@ -252,7 +321,7 @@ bool InertialErrorTerm::Evaluate(
   LOG(INFO) << "b_a_to int: " << integration_cache_.end_state.b_a.transpose();
   LOG(INFO) << "p_M_I_to: " << p_M_I_to.transpose();
   LOG(INFO) << "p_M_I_to int: " << integration_cache_.end_state.p_M_I.transpose();
-  
+  */
   CHECK(integration_cache_.valid);
 
   if (true) {
@@ -276,6 +345,16 @@ bool InertialErrorTerm::Evaluate(
         b_a_to - integration_cache_.end_state.b_a,
         p_M_I_to - integration_cache_.end_state.p_M_I;
 
+    // check that the bias residuals are zero
+    Eigen::Vector3d r11 = b_g_from - integration_cache_.end_state.b_g;
+    Eigen::Vector3d r12 = b_a_from - integration_cache_.end_state.b_a;
+    CHECK(r11.isZero(0.0001)) << "Gyro bias residuals are not zero!"
+        << "Residuals from: " << b_g_from.transpose()
+        << "Residuals to: " << integration_cache_.end_state.b_g.transpose();
+    CHECK(r12.isZero(0.0001)) << "Accel bias residuals are not zero!"
+        << "Residuals from: " << b_a_from.transpose()
+        << "Residuals to: " << integration_cache_.end_state.b_a.transpose();
+
     integration_cache_.L_cholesky_Q_accum.matrixL().solveInPlace(residuals);
 
   } else {
@@ -284,10 +363,10 @@ bool InertialErrorTerm::Evaluate(
   }
 
   if (eval_jac) {
-    if (!cache_is_valid) {
+    if (true) {
       InertialJacobianType& J_end = integration_cache_.J_end;
       InertialJacobianType& J_begin = integration_cache_.J_begin;
-
+      /*
       Eigen::Matrix<double, 4, 3, Eigen::RowMajor> theta_local_begin;
       Eigen::Matrix<double, 4, 3, Eigen::RowMajor> theta_local_end;
       // This is the jacobian lifting the error state to the state. JPL
@@ -301,10 +380,29 @@ bool InertialErrorTerm::Evaluate(
 
       // Calculate the Jacobian for the end of the edge:
       J_end.setZero();
-      J_end = Eigen::Matrix<double, 15, 15>::Identity();
-      
+      J_end.block<3, 4>(0, 0) = 4.0 * theta_local_end.transpose();
+      J_end.block<12, 12>(3, 4) = Eigen::Matrix<double, 12, 12>::Identity();
+
+      // Since Ceres separates the actual Jacobian from the Jacobian of the
+      // local
+      // parameterization, we apply the inverse of the local parameterization.
+      // Ceres can then apply the local parameterization Jacobian on top of this
+      // and we get the correct Jacobian in the end. This is necessary since we
+      // propagate the state as error state.
       J_begin.setZero();
-      J_begin = integration_cache_.phi_accum;
+      J_begin.block<3, 4>(0, 0) =
+          -4.0 * integration_cache_.phi_accum.block<3, 3>(0, 0) *
+          theta_local_begin.transpose();
+      J_begin.block<3, 12>(0, 4) =
+          -integration_cache_.phi_accum.block<3, 12>(0, 3);
+      J_begin.block<12, 4>(3, 0) =
+          -4.0 * integration_cache_.phi_accum.block<12, 3>(3, 0) *
+          theta_local_begin.transpose();
+      J_begin.block<12, 12>(3, 4) =
+          -integration_cache_.phi_accum.block<12, 12>(3, 3);
+        */
+       J_end.setIdentity();
+       J_begin = - integration_cache_.phi_accum;
 
       // Invert and apply by using backsolve.
       integration_cache_.L_cholesky_Q_accum.matrixL().solveInPlace(J_end);
@@ -370,7 +468,6 @@ int addInertialTermsForEdges(
 
 void evaluateInertialJacobian(
     ResidualBlockSet& residual_block_set, vi_map::VIMap* map, 
-    OptimizationStateBuffer* buffer, 
     Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>& jacobian_full,
     Eigen::Matrix<double, Eigen::Dynamic, 1>& residuals_full,
     Eigen::Matrix<double, Eigen::Dynamic, 1>& parameters_full) {
@@ -383,8 +480,11 @@ void evaluateInertialJacobian(
     CHECK(num_vertices * kFullResidualSize == residuals_full.rows());
     CHECK(num_vertices * kStateSize == parameters_full.rows());
 
+    // save a copy of the previous parameters to check if the integration is correct
+    Eigen::Matrix<double, Eigen::Dynamic, 1> previous_parameters_full = parameters_full;
+
     for (int i = 1; i < num_vertices; i++) {
-        LOG(INFO) << "i = " << i;
+        //LOG(INFO) << "i = " << i;
         Eigen::Matrix<double, kErrorStateSize, kUpdateSize> jacobian_from; // = jacobian_full.block<kErrorStateSize, kUpdateSize>(i * kFullResidualSize, (i - 1) * kUpdateSize);
         Eigen::Matrix<double, kErrorStateSize, kUpdateSize> jacobian_to; // = jacobian_full.block<kErrorStateSize, kUpdateSize>(i * kFullResidualSize, i * kUpdateSize);
         
@@ -393,29 +493,19 @@ void evaluateInertialJacobian(
         //std::vector<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> parameters(8);
         // get residual block
         const ResidualBlock& residual_block = residual_block_set.getInertialResidualBlocks(i-1); // i - 1 since the iteration starts at 1 and the index starts at 0
-        // get edge id
-        pose_graph::EdgeId edge_id = residual_block.edge_id;
         // check that edge exists
-        CHECK(map->hasEdge(edge_id));
-        // get edge
-        const vi_map::ViwlsEdge& inertial_edge = map->getEdgeAs<vi_map::ViwlsEdge>(edge_id);
-        // get vertex from
-        // check that vertex exists
-        CHECK(map->hasVertex(inertial_edge.from()));
-        vi_map::Vertex& vertex_from = map->getVertex(inertial_edge.from());
-        // get vertex to
-        CHECK(map->hasVertex(inertial_edge.to()));
-        vi_map::Vertex& vertex_to = map->getVertex(inertial_edge.to());
-        // vertex parameters from
-        double* vertex_from_q_IM__M_p_MI = buffer->get_vertex_q_IM__M_p_MI_JPL(inertial_edge.from());
-        double* vertex_from_b_g = vertex_from.getGyroBiasMutable();
-        double* vertex_from_v_M = vertex_from.get_v_M_Mutable();
-        double* vertex_from_b_a = vertex_from.getAccelBiasMutable();
-        // vertex parameters to
-        double* vertex_to_q_IM__M_p_MI = buffer->get_vertex_q_IM__M_p_MI_JPL(inertial_edge.to()); 
-        double* vertex_to_b_g = vertex_to.getGyroBiasMutable();
-        double* vertex_to_v_M = vertex_to.get_v_M_Mutable();
-        double* vertex_to_b_a = vertex_to.getAccelBiasMutable();
+        CHECK(map->hasEdge(residual_block.edge_id));
+        // get parameter blocks
+        double* vertex_from_q_IM__M_p_MI = residual_block.parameter_blocks[0];
+        double* vertex_from_b_g = residual_block.parameter_blocks[1];
+        double* vertex_from_v_M = residual_block.parameter_blocks[2];
+        double* vertex_from_b_a = residual_block.parameter_blocks[3];
+        
+        double* vertex_to_q_IM__M_p_MI = residual_block.parameter_blocks[4];
+        double* vertex_to_b_g = residual_block.parameter_blocks[5];
+        double* vertex_to_v_M = residual_block.parameter_blocks[6];
+        double* vertex_to_b_a = residual_block.parameter_blocks[7];
+
         // create Eigen::Map
         Eigen::Map<Eigen::Matrix<double, 7, 1>> map_q_IM__M_p_MI_from(vertex_from_q_IM__M_p_MI);
         Eigen::Map<Eigen::Matrix<double, 3, 1>> map_b_g_from(vertex_from_b_g);
@@ -442,7 +532,7 @@ void evaluateInertialJacobian(
         CHECK(parameters.allFinite());
         // insert parameters into parameters_full
         parameters_full.block<2 * kStateSize, 1>((i - 1) * kStateSize, 0) = parameters;
-
+        CHECK(!(parameters_full.block<2 * kStateSize, 1>((i - 1) * kStateSize, 0).isApprox(previous_parameters_full.block<2 * kStateSize, 1>((i - 1) * kStateSize, 0))));
         // evaluate jacobian
         residual_block.cost_function->Evaluate(parameters, residuals, jacobian_from, jacobian_to, true);
         CHECK(jacobian_from.allFinite());
@@ -459,13 +549,14 @@ void evaluateInertialJacobian(
         // copy parameters to full parameters
         // parameters_full.block<2 * kStateSize, 1>((i - 1) * kStateSize, 0) = parameters;
     }
+    CHECK(!(parameters_full.isApprox(previous_parameters_full)));
 }
 
 void calculateResiduals(
     ResidualBlockSet& residual_block_set,
     vi_map::VIMap* map,
     Eigen::Matrix<double, Eigen::Dynamic, 1>& residuals_full, 
-    Eigen::Matrix<double, Eigen::Dynamic, 1>& parameters_full) {
+    const Eigen::Matrix<double, Eigen::Dynamic, 1>& parameters_full) {
     
     // check that the size of the matrices is correct
     // extract the number of vertices from the map
@@ -478,7 +569,7 @@ void calculateResiduals(
     Eigen::Matrix<double, kErrorStateSize, kUpdateSize> jacobian_to;
     jacobian_to.setZero();
     for (int i = 1; i < num_vertices; i++) {
-        LOG(INFO) << "i = " << i;
+        //LOG(INFO) << "i = " << i;
         Eigen::Matrix<double, kErrorStateSize, 1> residuals = residuals_full.block<kErrorStateSize, 1>(i * kFullResidualSize, 0);
         Eigen::Matrix<double, 2 * kStateSize, 1> parameters = parameters_full.block<2* kStateSize, 1>((i - 1) * kStateSize, 0);
         //std::vector<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> parameters(8);

@@ -866,6 +866,41 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         // check that the map is empty
         CHECK_EQ(li_map.numVertices(), 0);
         CHECK_EQ(li_map.numEdges(), 0);
+
+        ////////////////////////////////////////////
+        // rebuild vi-map
+        pose_graph::EdgeIdList vi_edges;
+        map->getAllEdgeIdsInMissionAlongGraph(
+            mission_ids[0], pose_graph::Edge::EdgeType::kViwls, &vi_edges);
+          
+        // get vertex velocities and biases
+        std::vector<Eigen::Vector3d> vi_keyframe_velocities;
+        std::vector<Eigen::Vector3d> vi_keyframe_gyro_bias;
+        std::vector<Eigen::Vector3d> vi_keyframe_accel_bias;
+        aslam::TransformationVector vi_poses_M_B;
+        std::vector<int64_t> vi_keyframe_timestamps;
+        int n_vert = 0;
+        for (const pose_graph::EdgeId& edge_id : vi_edges) {
+          const vi_map::ViwlsEdge& edge = map->getEdgeAs<vi_map::ViwlsEdge>(edge_id);
+
+          if (!n_vert) {
+            vi_map::Vertex& vertex = map->getVertex(edge.from());
+            vi_keyframe_velocities.emplace_back(vertex.get_v_M());
+            vi_keyframe_gyro_bias.emplace_back(vertex.getGyroBias());
+            vi_keyframe_accel_bias.emplace_back(vertex.getAccelBias());
+            vi_keyframe_timestamps.emplace_back(vertex.getMinTimestampNanoseconds());
+            vi_poses_M_B.emplace_back(vertex.get_T_M_I());
+          }
+          vi_map::Vertex& vertex = map->getVertex(edge.to());
+          vi_keyframe_velocities.emplace_back(vertex.get_v_M());
+          vi_keyframe_gyro_bias.emplace_back(vertex.getGyroBias());
+          vi_keyframe_accel_bias.emplace_back(vertex.getAccelBias());
+          vi_keyframe_timestamps.emplace_back(vertex.getMinTimestampNanoseconds());
+          vi_poses_M_B.emplace_back(vertex.get_T_M_I());
+          n_vert++;
+        }
+
+        ////////////////////////////////////////////
         // build the LiDAR inertial map with synchronized LiDAR and IMU data
         li_map::buildLIMap(mission_ids, map, poses_M_B, 
                           keyframe_velocities, keyframe_gyro_bias, 
@@ -891,7 +926,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
 
         SurfaceMap surface_map;
         for (size_t i = 0; i < win_size; ++i) {
-          cut_voxel(surface_map, pointclouds[i], poses_G_S[i], i, win_size);
+          balm_error_terms::cut_voxel(surface_map, pointclouds[i], poses_G_S[i], i, win_size);
         }
 
         VoxHess voxhess;
@@ -913,7 +948,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
             "balm_planes", ros_planes_G);
 
         // Optimize the planes together
-        BALM2 opt_lsv;
+        balm_error_terms::BALM2 opt_lsv;
         opt_lsv.damping_iter(poses_G_S, voxhess, li_map);
 
 
