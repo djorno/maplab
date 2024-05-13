@@ -2315,6 +2315,48 @@ void VIMap::getAllVertexIdsInMissionAlongGraph(
       &current_vertex_id));
 }
 
+void VIMap::getAllVertexIdsIncLidarInMissionAlongGraph(
+    const vi_map::MissionId& mission_id,
+    pose_graph::VertexIdList* vertices) const {
+  CHECK_NOTNULL(vertices)->clear();
+  CHECK(hasMission(mission_id));
+
+  const vi_map::VIMission& mission = getMission(mission_id);
+  const pose_graph::VertexId& starting_vertex_id = mission.getRootVertexId();
+  if (starting_vertex_id.isValid()) {
+    getAllVertexIdsIncLidarInMissionAlongGraph(
+        mission_id, starting_vertex_id, vertices);
+  }
+}
+
+void VIMap::getAllVertexIdsIncLidarInMissionAlongGraph(
+    const vi_map::MissionId& mission_id,
+    const pose_graph::VertexId& starting_vertex_id,
+    pose_graph::VertexIdList* vertices) const {
+  CHECK_NOTNULL(vertices)->clear();
+  CHECK(starting_vertex_id.isValid());
+  CHECK(hasMission(mission_id));
+
+  pose_graph::VertexId current_vertex_id = starting_vertex_id;
+  CHECK_EQ(getAnyVertex(current_vertex_id).getMissionId(), mission_id);
+
+  // Early exit if the root vertex hasn't been set yet.
+  if (!current_vertex_id.isValid()) {
+    return;
+  }
+
+  bool vertex_is_lidar = false;
+  int count = 0;
+
+  do {
+    vertices->push_back(current_vertex_id);
+    ++count;
+  } while (getNextVertexIncludingLidar(
+      current_vertex_id,
+      &current_vertex_id));
+  LOG(INFO) << "Number of vertices in mission " << mission_id << ": " << count;
+}
+
 void VIMap::getAllVertexIdsAlongGraphsSortedByTimestamp(
     pose_graph::VertexIdList* vertices) const {
   CHECK_NOTNULL(vertices)->clear();
@@ -2382,6 +2424,67 @@ void VIMap::getAllEdgeIdsInMissionAlongGraph(
         std::remove_if(edges->begin(), edges->end(), is_edge_type_different),
         edges->end());
   } while (getNextVertex(
+      current_vertex_id,
+      &current_vertex_id));
+}
+
+void VIMap::getAllEdgeIdsIncLidarInMissionAlongGraph(
+    const vi_map::MissionId& mission_id, pose_graph::EdgeIdList* edges) const {
+  CHECK_NOTNULL(edges);
+  CHECK(hasMission(mission_id))
+      << "Mission " << mission_id.hexString() << " does not exist";
+  edges->clear();
+
+  const vi_map::VIMission& mission = getMission(mission_id);
+  pose_graph::VertexId current_vertex_id = mission.getRootVertexId();
+
+  // Early exit if the root vertex hasn't been set yet.
+  if (!current_vertex_id.isValid()) {
+    return;
+  }
+  bool vertex_is_lidar = false;
+  do {
+    pose_graph::EdgeIdSet outgoing_edges;
+    if (getAnyVertex(current_vertex_id).hasOutgoingLidarEdges()) {
+      getAnyVertex(current_vertex_id).getOutgoingLidarEdges(&outgoing_edges);
+      edges->insert(edges->end(), outgoing_edges.begin(), outgoing_edges.end());
+    }
+    else {
+      getAnyVertex(current_vertex_id).getOutgoingEdges(&outgoing_edges);
+      edges->insert(edges->end(), outgoing_edges.begin(), outgoing_edges.end());
+    }
+  } while (getNextVertexIncludingLidar(current_vertex_id, &current_vertex_id));
+}
+
+void VIMap::getAllEdgeIdsIncLidarInMissionAlongGraph(
+    const vi_map::MissionId& mission_id, pose_graph::Edge::EdgeType edge_type,
+    pose_graph::EdgeIdList* edges) const {
+  CHECK_NOTNULL(edges);
+  CHECK(hasMission(mission_id))
+      << "Mission " << mission_id.hexString() << " does not exist";
+  edges->clear();
+
+  const vi_map::VIMission& mission = getMission(mission_id);
+  pose_graph::VertexId current_vertex_id = mission.getRootVertexId();
+
+  // Early exit if the root vertex hasn't been set yet.
+  if (!current_vertex_id.isValid()) {
+    return;
+  }
+
+  std::function<bool(pose_graph::EdgeId&)> is_edge_type_different =  // NOLINT
+      [&](const pose_graph::EdgeId& edge_id) {
+        return getEdgeType(edge_id) != edge_type;
+      };
+  bool vertex_is_lidar = false;
+  do {
+    pose_graph::EdgeIdSet outgoing_edges;
+    getAnyVertex(current_vertex_id).getOutgoingEdges(&outgoing_edges);
+    edges->insert(edges->end(), outgoing_edges.begin(), outgoing_edges.end());
+    edges->erase(
+        std::remove_if(edges->begin(), edges->end(), is_edge_type_different),
+        edges->end());
+  } while (getNextVertexIncludingLidar(
       current_vertex_id,
       &current_vertex_id));
 }

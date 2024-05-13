@@ -342,6 +342,16 @@ bool Vertex::addOutgoingEdge(const pose_graph::EdgeId& edge) {
   return true;
 }
 
+bool Vertex::addIncomingLidarEdge(const pose_graph::EdgeId& edge) {
+  incoming_lidar_edges_.insert(edge);
+  return true;
+}
+
+bool Vertex::addOutgoingLidarEdge(const pose_graph::EdgeId& edge) {
+  outgoing_lidar_edges_.insert(edge);
+  return true;
+}
+
 void Vertex::getOutgoingEdges(pose_graph::EdgeIdSet* edges) const {
   CHECK_NOTNULL(edges);
   *edges = outgoing_edges_;
@@ -351,10 +361,34 @@ void Vertex::getIncomingEdges(pose_graph::EdgeIdSet* edges) const {
   CHECK_NOTNULL(edges);
   *edges = incoming_edges_;
 }
+
+void Vertex::getOutgoingLidarEdges(pose_graph::EdgeIdSet* edges) const {
+  CHECK_NOTNULL(edges);
+  *edges = outgoing_lidar_edges_;
+}
+
+void Vertex::getIncomingLidarEdges(pose_graph::EdgeIdSet* edges) const {
+  CHECK_NOTNULL(edges);
+  *edges = incoming_lidar_edges_;
+}
+
 void Vertex::getAllEdges(pose_graph::EdgeIdSet* edges) const {
   CHECK_NOTNULL(edges);
   *edges = incoming_edges_;
   edges->insert(outgoing_edges_.begin(), outgoing_edges_.end());
+}
+
+void Vertex::getAllLidarEdges(pose_graph::EdgeIdSet* edges) const {
+  CHECK_NOTNULL(edges);
+  *edges = incoming_lidar_edges_;
+  edges->insert(outgoing_lidar_edges_.begin(), outgoing_lidar_edges_.end());
+}
+
+void Vertex::getAllEdgesIncludingLidar(pose_graph::EdgeIdSet* edges) const {
+  CHECK_NOTNULL(edges);
+  getAllEdges(edges);
+  edges->insert(incoming_lidar_edges_.begin(), incoming_lidar_edges_.end());
+  edges->insert(outgoing_lidar_edges_.begin(), outgoing_lidar_edges_.end());
 }
 
 bool Vertex::hasIncomingEdges() const {
@@ -365,8 +399,24 @@ bool Vertex::hasOutgoingEdges() const {
   return !outgoing_edges_.empty();
 }
 
+bool Vertex::hasIncomingLidarEdges() const {
+  return !incoming_lidar_edges_.empty();
+}
+
+bool Vertex::hasOutgoingLidarEdges() const {
+  return !outgoing_lidar_edges_.empty();
+}
+
 size_t Vertex::numOutgoingEdges() const {
   return outgoing_edges_.size();
+}
+
+size_t Vertex::numOutgoingLidarEdges() const {
+  return outgoing_lidar_edges_.size();
+}
+
+size_t Vertex::numOutgoingEdgesIncludingLidar() const {
+  return outgoing_edges_.size() + outgoing_lidar_edges_.size();
 }
 
 void Vertex::removeIncomingEdge(const pose_graph::EdgeId& edge_id) {
@@ -377,6 +427,16 @@ void Vertex::removeIncomingEdge(const pose_graph::EdgeId& edge_id) {
 void Vertex::removeOutgoingEdge(const pose_graph::EdgeId& edge_id) {
   CHECK_GT(outgoing_edges_.count(edge_id), 0u);
   outgoing_edges_.erase(edge_id);
+}
+
+void Vertex::removeIncomingLidarEdge(const pose_graph::EdgeId& edge_id) {
+  CHECK_GT(incoming_lidar_edges_.count(edge_id), 0u);
+  incoming_lidar_edges_.erase(edge_id);
+}
+
+void Vertex::removeOutgoingLidarEdge(const pose_graph::EdgeId& edge_id) {
+  CHECK_GT(outgoing_lidar_edges_.count(edge_id), 0u);
+  outgoing_lidar_edges_.erase(edge_id);
 }
 
 void Vertex::serialize(vi_map::proto::ViwlsVertex* proto) const {

@@ -54,7 +54,7 @@ void OptimizationStateBuffer::copyAllKeyframePosesBackToMap(
       vertex_id_to_vertex_idx_.size());
   typedef std::pair<const pose_graph::VertexId, size_t> value_type;
   for (const value_type& vertex_id_idx : vertex_id_to_vertex_idx_) {
-    vi_map::Vertex& vertex = map->getVertex(vertex_id_idx.first);
+    vi_map::Vertex& vertex = map->getAnyVertex(vertex_id_idx.first);
     const size_t vertex_idx = vertex_id_idx.second;
     Eigen::Map<Eigen::Quaterniond> map_q_M_I(vertex.get_q_M_I_Mutable());
     Eigen::Map<Eigen::Vector3d> map_p_M_I(vertex.get_p_M_I_Mutable());
@@ -163,16 +163,15 @@ void OptimizationStateBuffer::importKeyframePosesOfMissions(
   pose_graph::VertexIdList all_vertices;
   pose_graph::VertexIdList mission_vertices;
   for (const vi_map::MissionId& mission_id : mission_ids) {
-    map.getAllVertexIdsInMissionAlongGraph(mission_id, &mission_vertices);
+    map.getAllVertexIdsIncLidarInMissionAlongGraph(mission_id, &mission_vertices);
     all_vertices.insert(
         all_vertices.end(), mission_vertices.begin(), mission_vertices.end());
   }
   vertex_id_to_vertex_idx_.reserve(all_vertices.size());
   vertex_q_IM__M_p_MI_.resize(Eigen::NoChange, all_vertices.size());
-
   size_t vertex_idx = 0u;
   for (const pose_graph::VertexId& vertex_id : all_vertices) {
-    const vi_map::Vertex& ba_vertex = map.getVertex(vertex_id);
+    const vi_map::Vertex& ba_vertex = map.getAnyVertex(vertex_id);
 
     Eigen::Quaterniond q_M_I = ba_vertex.get_q_M_I();
     ensurePositiveQuaternion(q_M_I.coeffs());

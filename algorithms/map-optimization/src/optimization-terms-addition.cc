@@ -373,7 +373,7 @@ int addInertialTerms(
   const vi_map::MissionIdSet& missions_to_optimize = problem->getMissionIds();
   for (const vi_map::MissionId& mission_id : missions_to_optimize) {
     pose_graph::EdgeIdList edges;
-    map->getAllEdgeIdsInMissionAlongGraph(
+    map->getAllEdgeIdsIncLidarInMissionAlongGraph(
         mission_id, pose_graph::Edge::EdgeType::kViwls, &edges);
 
     const vi_map::Imu& imu_sensor = map->getMissionImu(mission_id);
@@ -444,8 +444,8 @@ int addInertialTermsForEdges(
             imu_sigmas.acc_noise_density,
             imu_sigmas.acc_bias_random_walk_noise_density, gravity_magnitude));
 
-    vi_map::Vertex& vertex_from = map->getVertex(inertial_edge.from());
-    vi_map::Vertex& vertex_to = map->getVertex(inertial_edge.to());
+    vi_map::Vertex& vertex_from = map->getAnyVertex(inertial_edge.from());
+    vi_map::Vertex& vertex_to = map->getAnyVertex(inertial_edge.to());
 
     problem->getProblemBookkeepingMutable()->keyframes_in_problem.emplace(
         vertex_from.id());

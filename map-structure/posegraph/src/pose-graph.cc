@@ -30,11 +30,21 @@ void PoseGraph::addEdge(Edge::UniquePtr edge) {
   const Edge* const edge_raw = edge.get();
   CHECK(edges_.emplace(edge_raw->id(), std::move(edge)).second)
       << "Edge already exists.";
-  Vertex& vertex_from = getVertexMutable(edge_raw->from());
-  Vertex& vertex_to = getVertexMutable(edge_raw->to());
-  CHECK(
-      vertex_from.addOutgoingEdge(edge_raw->id()) &&
-      vertex_to.addIncomingEdge(edge_raw->id()));
+}
+
+void PoseGraph::addAnyEdge(Edge::UniquePtr edge, bool is_connecting_posegraphs) {
+  // Insert new edge and do necessary book-keeping in vertices.
+  CHECK(edge != nullptr);
+  const Edge* const edge_raw = edge.get();
+  CHECK(edges_.emplace(edge_raw->id(), std::move(edge)).second)
+      << "Edge already exists.";
+  if(!is_connecting_posegraphs) {
+    Vertex& vertex_from = getVertexMutable(edge_raw->from());
+    Vertex& vertex_to = getVertexMutable(edge_raw->to());
+    CHECK(
+        vertex_from.addOutgoingEdge(edge_raw->id()) &&
+        vertex_to.addIncomingEdge(edge_raw->id()));
+  }
 }
 
 const Vertex& PoseGraph::getVertex(const VertexId& id) const {

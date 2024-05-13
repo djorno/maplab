@@ -34,6 +34,8 @@ class PoseGraph {
 
   void addEdge(AlignedUniquePtr<Edge> edge);
 
+  void addAnyEdge(AlignedUniquePtr<Edge> edge, bool is_connecting_posegraphs);
+
   /****************************************
    * Const ops
    ****************************************/

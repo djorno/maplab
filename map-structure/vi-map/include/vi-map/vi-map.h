@@ -14,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <posegraph/pose-graph.h>
+#include <posegraph/lidar-pose-graph.h>
 #include <posegraph/unique-id.h>
 #include <queue>
 #include <random>
@@ -42,6 +43,7 @@
 #include "vi-map/transformation-edge.h"
 #include "vi-map/unique-id.h"
 #include "vi-map/vertex.h"
+#include "vi-map/lidar-vertex.h"
 #include "vi-map/vi_map.pb.h"
 #include "vi-map/viwls-edge.h"
 
@@ -139,16 +141,31 @@ class VIMap : public backend::ResourceMap,
   inline SensorManager& getSensorManager();
 
   inline size_t numVertices() const;
+  inline size_t numLidarVertices() const;
   inline size_t numVerticesInMission(const vi_map::MissionId& mission_id) const;
   inline bool hasVertex(const pose_graph::VertexId& id) const;
+  inline bool hasLidarVertex(const pose_graph::VertexId& id) const;
+  inline bool hasAnyVertex(const pose_graph::VertexId& id) const;
   inline vi_map::Vertex& getVertex(const pose_graph::VertexId& id);
   inline const vi_map::Vertex& getVertex(const pose_graph::VertexId& id) const;
   inline vi_map::Vertex* getVertexPtr(const pose_graph::VertexId& id);
   inline const vi_map::Vertex* getVertexPtr(
       const pose_graph::VertexId& id) const;
+  inline vi_map::Vertex& getAnyVertex(const pose_graph::VertexId& id);
+  inline const vi_map::Vertex& getAnyVertex(const pose_graph::VertexId& id) const;
+  inline vi_map::LidarVertex& getLidarVertex(const pose_graph::VertexId& id);
+  inline const vi_map::LidarVertex& getLidarVertex(
+      const pose_graph::VertexId& id) const;
+  inline vi_map::LidarVertex* getLidarVertexPtr(
+      const pose_graph::VertexId& id);
+    inline const vi_map::LidarVertex* getLidarVertexPtr(
+      const pose_graph::VertexId& id) const;
+  inline int64_t getVertexTimestampNanoseconds(const pose_graph::VertexId& id) const;
 
   inline size_t numEdges() const;
   inline bool hasEdge(const pose_graph::EdgeId& id) const;
+  inline bool hasAnyEdge(const pose_graph::EdgeId& id) const;
+  inline bool hasLidarEdge(const pose_graph::EdgeId& id) const;
   template <typename EdgeType>
   EdgeType& getEdgeAs(const pose_graph::EdgeId& id);
   template <typename EdgeType>
@@ -157,6 +174,15 @@ class VIMap : public backend::ResourceMap,
   EdgeType* getEdgePtrAs(const pose_graph::EdgeId& id);
   template <typename EdgeType>
   const EdgeType* getEdgePtrAs(const pose_graph::EdgeId& id) const;
+
+  template <typename EdgeType>
+  EdgeType& getAnyEdgeAs(const pose_graph::EdgeId& id);
+  template <typename EdgeType>
+  const EdgeType& getAnyEdgeAs(const pose_graph::EdgeId& id) const;
+  template <typename EdgeType>
+  EdgeType* getAnyEdgePtrAs(const pose_graph::EdgeId& id);
+  template <typename EdgeType>
+  const EdgeType* getAnyEdgePtrAs(const pose_graph::EdgeId& id) const;
 
   /// Creates and adds a new MissionBaseFrame and a new Mission. It does
   /// not set the mission root vertex id, so make sure to set this using
@@ -394,6 +420,10 @@ class VIMap : public backend::ResourceMap,
       const pose_graph::VertexId& current_vertex_id,
       pose_graph::VertexId* next_vertex_id) const;
 
+  inline bool getNextVertexIncludingLidar(
+        const pose_graph::VertexId& current_vertex_id,
+        pose_graph::VertexId* next_vertex_id) const;
+  
   /// Provide the previous vertex id by following the graph-traversal edge type
   /// of the graph.
   inline bool getPreviousVertex(
@@ -428,6 +458,14 @@ class VIMap : public backend::ResourceMap,
       const vi_map::MissionId& mission_id,
       const pose_graph::VertexId& starting_verte_id,
       pose_graph::VertexIdList* vertices) const;
+  
+  void getAllVertexIdsIncLidarInMissionAlongGraph(
+      const vi_map::MissionId& mission_id,
+      pose_graph::VertexIdList* vertices) const;
+  void getAllVertexIdsIncLidarInMissionAlongGraph(
+      const vi_map::MissionId& mission_id,
+      const pose_graph::VertexId& starting_verte_id,
+      pose_graph::VertexIdList* vertices) const;
 
   /// Get all the vertex ids in the order that they appear when traversing the
   /// pose-graphs of all missions (sorted by timestamp).
@@ -441,6 +479,11 @@ class VIMap : public backend::ResourceMap,
   void getAllEdgeIdsInMissionAlongGraph(
       const vi_map::MissionId& mission_id, pose_graph::EdgeIdList* edges) const;
   void getAllEdgeIdsInMissionAlongGraph(
+      const vi_map::MissionId& mission_id, pose_graph::Edge::EdgeType edge_type,
+      pose_graph::EdgeIdList* edges) const;
+  void getAllEdgeIdsIncLidarInMissionAlongGraph(
+      const vi_map::MissionId& mission_id, pose_graph::EdgeIdList* edges) const;
+  void getAllEdgeIdsIncLidarInMissionAlongGraph(
       const vi_map::MissionId& mission_id, pose_graph::Edge::EdgeType edge_type,
       pose_graph::EdgeIdList* edges) const;
   void getAllLandmarkIdsInMission(
@@ -465,6 +508,8 @@ class VIMap : public backend::ResourceMap,
   inline void removeLandmark(const LandmarkId landmark_id);
 
   inline void addVertex(vi_map::Vertex::UniquePtr vertex_ptr);
+  inline void addLidarVertex(vi_map::LidarVertex::UniquePtr vertex_ptr);
+  inline void addLidarEdge(vi_map::Edge::UniquePtr edge_ptr);
   inline void addEdge(vi_map::Edge::UniquePtr edge_ptr);
   inline pose_graph::Edge::EdgeType getEdgeType(
       pose_graph::EdgeId edge_id) const;
@@ -791,6 +836,7 @@ class VIMap : public backend::ResourceMap,
   // To force const accessors in non-const methods.
   const VIMap* const const_this;
   PoseGraph posegraph;
+  PoseGraph lidar_posegraph;
   VIMissionMap missions;
   MissionBaseFrameMap mission_base_frames;
   LandmarkIndex landmark_index;

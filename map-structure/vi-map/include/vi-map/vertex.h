@@ -148,17 +148,29 @@ class Vertex : public pose_graph::Vertex {
 
   virtual bool addIncomingEdge(const pose_graph::EdgeId& edge);
   virtual bool addOutgoingEdge(const pose_graph::EdgeId& edge);
+  virtual bool addIncomingLidarEdge(const pose_graph::EdgeId& edge);
+  virtual bool addOutgoingLidarEdge(const pose_graph::EdgeId& edge);
 
   virtual void getOutgoingEdges(pose_graph::EdgeIdSet* edges) const;
   virtual void getIncomingEdges(pose_graph::EdgeIdSet* edges) const;
+  virtual void getOutgoingLidarEdges(pose_graph::EdgeIdSet* edges) const;
+  virtual void getIncomingLidarEdges(pose_graph::EdgeIdSet* edges) const;
   virtual void getAllEdges(pose_graph::EdgeIdSet* edges) const;
+  virtual void getAllLidarEdges(pose_graph::EdgeIdSet* edges) const;
+  virtual void getAllEdgesIncludingLidar(pose_graph::EdgeIdSet* edges) const;
 
   virtual bool hasIncomingEdges() const;
   virtual bool hasOutgoingEdges() const;
+  virtual bool hasIncomingLidarEdges() const;
+  virtual bool hasOutgoingLidarEdges() const;
   size_t numOutgoingEdges() const;
+  size_t numOutgoingLidarEdges() const;
+  size_t numOutgoingEdgesIncludingLidar() const;
 
   virtual void removeIncomingEdge(const pose_graph::EdgeId& edge_id);
   virtual void removeOutgoingEdge(const pose_graph::EdgeId& edge_id);
+  virtual void removeIncomingLidarEdge(const pose_graph::EdgeId& edge_id);
+  virtual void removeOutgoingLidarEdge(const pose_graph::EdgeId& edge_id);
 
   // Pointers to data containers, useful for optimization purposes
   // (e.g. Google Ceres).
@@ -336,6 +348,10 @@ class Vertex : public pose_graph::Vertex {
   // Incoming, outgoing edges.
   pose_graph::EdgeIdSet incoming_edges_;
   pose_graph::EdgeIdSet outgoing_edges_;
+
+  // LiDAR-adjacent edges.
+  pose_graph::EdgeIdSet incoming_lidar_edges_;
+  pose_graph::EdgeIdSet outgoing_lidar_edges_;
 
   aslam::VisualNFrame::Ptr n_frame_;
   std::vector<LandmarkIdList> observed_landmark_ids_;

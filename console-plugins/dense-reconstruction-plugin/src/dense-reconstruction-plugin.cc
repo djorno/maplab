@@ -5,6 +5,7 @@
 #include "dense-reconstruction/balm/inertial-terms.h"
 #include "dense-reconstruction/balm/state-buffer.h"
 #include "dense-reconstruction/balm/common.h"
+#include "dense-reconstruction/balm/vi-map-lidar.h"
 
 #include <chrono>
 #include <cstring>
@@ -857,68 +858,24 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
             mission_ids, input_resource_type,
             FLAGS_dense_depth_map_reprojection_use_undistorted_camera, *map,
             integration_function, selection_function);
-
-        // create a copy of the map
-        vi_map::VIMap li_map;
-        li_map.deepCopy(*map.get());
-        // remove all vertices and edges from map
-        li_map.deleteAllVerticesAndEdges();
-        // check that the map is empty
-        CHECK_EQ(li_map.numVertices(), 0);
-        CHECK_EQ(li_map.numEdges(), 0);
-
-        ////////////////////////////////////////////
-        // rebuild vi-map
-        pose_graph::EdgeIdList vi_edges;
-        map->getAllEdgeIdsInMissionAlongGraph(
-            mission_ids[0], pose_graph::Edge::EdgeType::kViwls, &vi_edges);
-          
-        // get vertex velocities and biases
-        std::vector<Eigen::Vector3d> vi_keyframe_velocities;
-        std::vector<Eigen::Vector3d> vi_keyframe_gyro_bias;
-        std::vector<Eigen::Vector3d> vi_keyframe_accel_bias;
-        aslam::TransformationVector vi_poses_M_B;
-        std::vector<int64_t> vi_keyframe_timestamps;
-        int n_vert = 0;
-        for (const pose_graph::EdgeId& edge_id : vi_edges) {
-          const vi_map::ViwlsEdge& edge = map->getEdgeAs<vi_map::ViwlsEdge>(edge_id);
-
-          if (!n_vert) {
-            vi_map::Vertex& vertex = map->getVertex(edge.from());
-            vi_keyframe_velocities.emplace_back(vertex.get_v_M());
-            vi_keyframe_gyro_bias.emplace_back(vertex.getGyroBias());
-            vi_keyframe_accel_bias.emplace_back(vertex.getAccelBias());
-            vi_keyframe_timestamps.emplace_back(vertex.getMinTimestampNanoseconds());
-            vi_poses_M_B.emplace_back(vertex.get_T_M_I());
-          }
-          vi_map::Vertex& vertex = map->getVertex(edge.to());
-          vi_keyframe_velocities.emplace_back(vertex.get_v_M());
-          vi_keyframe_gyro_bias.emplace_back(vertex.getGyroBias());
-          vi_keyframe_accel_bias.emplace_back(vertex.getAccelBias());
-          vi_keyframe_timestamps.emplace_back(vertex.getMinTimestampNanoseconds());
-          vi_poses_M_B.emplace_back(vertex.get_T_M_I());
-          n_vert++;
-        }
-
-        ////////////////////////////////////////////
-        // build the LiDAR inertial map with synchronized LiDAR and IMU data
-        li_map::buildLIMap(mission_ids, map, poses_M_B, 
-                          keyframe_velocities, keyframe_gyro_bias, 
-                          keyframe_accel_bias,
-                          keyframe_timestamps, li_map);
-        size_t num_vertices = li_map.numVertices();
-        size_t num_edges = li_map.numEdges();
-        LOG(INFO) << "LiDAR-inertial map built with " << num_vertices
-                  << " vertices and " << num_edges << " edges.";
-        const aslam::Transformation& T_G_M = 
-                  li_map.getMissionBaseFrameForMission(mission_ids[0]).get_T_G_M();
-        LOG(INFO) << "Mission base frame: " << T_G_M.getPosition().transpose() << " " << T_G_M.getRotation().toImplementation().coeffs().transpose();
-
         
-
-          win_size = poses_G_S.size();
+        // get vi_map::VIMap
+        vi_map::VIMap& vi_map = *map.get();
+        LOG(INFO) << "Number of visual vertices: " << vi_map.numVertices();
+        LOG(INFO) << "Number of lidar before: " << vi_map.numLidarVertices();
+        li_map::addLidarToMap(mission_ids, 
+                      vi_map, 
+                      poses_M_B, 
+                      keyframe_velocities, 
+                      keyframe_gyro_bias, 
+                      keyframe_accel_bias,
+                      keyframe_timestamps);
+        
+        win_size = poses_G_S.size();
         LOG(INFO) << "Selected a total of " << poses_G_S.size()
                   << " LiDAR scans as keyframes.";
+        LOG(INFO) << "Number of visual keyframes: " << vi_map.numVertices();
+        LOG(INFO) << "Number of lidar after: " << vi_map.numLidarVertices();
 
         publishMapFromBALM(
             poses_G_S, pointclouds, "balm_path_before",
@@ -949,7 +906,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
 
         // Optimize the planes together
         balm_error_terms::BALM2 opt_lsv;
-        opt_lsv.damping_iter(poses_G_S, voxhess, li_map);
+        //opt_lsv.damping_iter(poses_G_S, voxhess, li_map);
 
 
         // Free up the memory
