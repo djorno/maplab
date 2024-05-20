@@ -48,6 +48,13 @@ static const int kPositionBlockSize = 3;
 static const int kPoseSize = 7;
 }  // namespace positionblocks
 
+namespace balmblocks {
+static const int kResidualSize = 1;
+static const int kOrientationBlockSize = 4;
+static const int kPositionBlockSize = 3;
+static const int kPoseSize = 7;
+}  // namespace balmblocks
+
 }  // namespace ceres_error_terms
 
 #endif  // CERES_ERROR_TERMS_COMMON_H_

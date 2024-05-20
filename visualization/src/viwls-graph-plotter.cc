@@ -174,12 +174,12 @@ void ViwlsGraphRvizPlotter::publishEdges(
 
   for (const vi_map::MissionId& mission_id : missions) {
     pose_graph::EdgeIdList edges;
-    map.getAllEdgeIdsInMissionAlongGraph(mission_id, &edges);
+    map.getAllEdgeIdsIncLidarInMissionAlongGraph(mission_id, &edges);
 
     // Visualize only edges of a defined type. Removes edges of different type.
     std::function<bool(pose_graph::EdgeId&)> edge_type_different =  // NOLINT
         [&](const pose_graph::EdgeId& edge_id) {
-          return map.getEdgeType(edge_id) != edge_type;
+          return map.getAnyEdgeType(edge_id) != edge_type;
         };  // NOLINT
 
     edges.erase(
@@ -213,10 +213,10 @@ void ViwlsGraphRvizPlotter::publishEdges(
 
   for (const pose_graph::EdgeId& edge_id : edges) {
     const pose_graph::Edge* edge_ptr =
-        map.getEdgePtrAs<pose_graph::Edge>(edge_id);
+        map.getAnyEdgePtrAs<pose_graph::Edge>(edge_id);
 
-    const vi_map::Vertex& vertex_from = map.getVertex(edge_ptr->from());
-    const vi_map::Vertex& vertex_to = map.getVertex(edge_ptr->to());
+    const vi_map::Vertex& vertex_from = map.getAnyVertex(edge_ptr->from());
+    const vi_map::Vertex& vertex_to = map.getAnyVertex(edge_ptr->to());
 
     const Eigen::Vector3d& M_p_I_from = vertex_from.get_p_M_I() - origin_;
     const Eigen::Vector3d& M_p_I_to = vertex_to.get_p_M_I() - origin_;
@@ -545,7 +545,7 @@ void ViwlsGraphRvizPlotter::publishVertices(
   pose_graph::VertexIdList all_vertices;
   for (const vi_map::MissionId& mission_id : missions) {
     pose_graph::VertexIdList mission_vertices;
-    map.getAllVertexIdsInMission(mission_id, &mission_vertices);
+    map.getAllVertexIdsIncLidarInMission(mission_id, &mission_vertices);
     all_vertices.insert(
         all_vertices.end(), mission_vertices.begin(), mission_vertices.end());
   }
@@ -556,7 +556,7 @@ void ViwlsGraphRvizPlotter::publishVertices(
     const vi_map::VIMap& map, const pose_graph::VertexIdList& vertices) const {
   visualization::PoseVector poses;
   for (const pose_graph::VertexId& vertex_id : vertices) {
-    const vi_map::Vertex& vertex = map.getVertex(vertex_id);
+    const vi_map::Vertex& vertex = map.getAnyVertex(vertex_id);
 
     const Eigen::Vector3d M_p_I = vertex.get_p_M_I();
     const Eigen::Quaterniond M_q_I = vertex.get_q_M_I();
@@ -712,8 +712,8 @@ void ViwlsGraphRvizPlotter::appendLandmarksToSphereVector(
   for (const pose_graph::VertexId& vertex_id : storing_vertices) {
     const vi_map::Vertex& vertex = map.getVertex(vertex_id);
     CHECK_EQ(vertex.getMissionId(), mission_id)
-        << "All vertices should belong "
-        << "to the same mission with id " << mission_id.hexString();
+        << "All vertices should belong " << "to the same mission with id "
+        << mission_id.hexString();
     const vi_map::MissionBaseFrame& baseframe =
         map.getMissionBaseFrame(mission.getBaseFrameId());
 

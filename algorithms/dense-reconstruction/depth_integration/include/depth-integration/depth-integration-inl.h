@@ -185,9 +185,13 @@ void integrateAllFrameDepthResourcesOfType(
             }
 
             // Integrate with or without intensity information.
+            LOG(WARNING) << "Integrating depth map at vertex " << vertex_id
+                         << " frame " << frame_idx;
             integrateDepthMap(
-                T_G_C, timestamp_ns, mission_id, vertex_counter, depth_map,
-                image, *cameras[frame_idx], integration_function);
+                T_G_C, vertex.get_T_M_I(), vertex.get_v_M(),
+                vertex.getGyroBias(), vertex.getAccelBias(), timestamp_ns,
+                mission_id, vertex_counter, depth_map, image,
+                *cameras[frame_idx], integration_function);
 
             continue;
           }
@@ -204,15 +208,14 @@ void integrateAllFrameDepthResourcesOfType(
               continue;
             }
 
-
             VLOG(3) << "Found point cloud.";
             aslam::Transformation T_M_B;
             Eigen::Vector3d v_M_B;
             Eigen::Vector3d gb_B;
             Eigen::Vector3d ab_B;
             integratePointCloud(
-                T_G_C, T_M_B, v_M_B, gb_B, ab_B, timestamp_ns, mission_id, vertex_counter, point_cloud,
-                integration_function);
+                T_G_C, T_M_B, v_M_B, gb_B, ab_B, timestamp_ns, mission_id,
+                vertex_counter, point_cloud, integration_function);
             continue;
           }
           default:
@@ -434,7 +437,8 @@ void integrateAllSensorDepthResourcesOfType(
       std::vector<Eigen::Vector3d> accel_biases;
 
       pose_interpolator.getPosesAtTime(
-          vi_map, mission_id, resource_timestamps, &poses_M_B, &velocities_M_B, &gyro_biases, &accel_biases);
+          vi_map, mission_id, resource_timestamps, &poses_M_B, &velocities_M_B,
+          &gyro_biases, &accel_biases);
 
       // Retrieve and integrate all resources.
       idx = 0u;
@@ -526,8 +530,8 @@ void integrateAllSensorDepthResourcesOfType(
 
             // Integrate with or without intensity information.
             integrateDepthMap(
-                T_G_S, timestamp_ns, mission_id, counter, depth_map, image,
-                camera, integration_function);
+                T_G_S, T_M_B, v_M_B, gb_B, ab_B, timestamp_ns, mission_id,
+                counter, depth_map, image, camera, integration_function);
 
             continue;
           }
@@ -603,8 +607,8 @@ void integrateAllSensorDepthResourcesOfType(
                     << num_removed_points << " points removed after filter "
                     << "conditions from the sensor yaml.";
             integratePointCloud(
-                T_G_S, T_M_B, v_M_B, gb_B, ab_B, timestamp_ns, mission_id, counter, point_cloud,
-                integration_function);
+                T_G_S, T_M_B, v_M_B, gb_B, ab_B, timestamp_ns, mission_id,
+                counter, point_cloud, integration_function);
             continue;
           }
           default:

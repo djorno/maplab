@@ -1,5 +1,6 @@
 #include "map-optimization/vi-optimization-builder.h"
 
+#include <ceres-error-terms/balm-voxhess.h>
 #include <gflags/gflags.h>
 #include <vi-map-helpers/mission-clustering-coobservation.h>
 
@@ -8,6 +9,8 @@
 
 DEFINE_bool(
     ba_include_visual, true, "Whether or not to include visual error-terms.");
+DEFINE_bool(
+    ba_include_balm, true, "Whether or not to include BALM error-terms.");
 DEFINE_bool(
     ba_use_visual_outlier_rejection_solver, true,
     "Reject outlier landmarks during the solve?");
@@ -101,6 +104,9 @@ ViProblemOptions ViProblemOptions::initFromGFlags() {
   // Vertex constraints
   options.fix_vertices = FLAGS_ba_fix_vertices;
 
+  // BALM constraints
+  options.add_balm_constraints = FLAGS_ba_include_balm;
+
   // Inertial constraints
   options.add_inertial_constraints = FLAGS_ba_include_inertial;
   options.fix_gyro_bias = FLAGS_ba_fix_gyro_bias;
@@ -156,8 +162,18 @@ OptimizationProblem* constructOptimizationProblem(
     vi_map::VIMap* map) {
   CHECK(map);
   CHECK(options.isValid());
-
+  if (options.add_balm_constraints) {
+    // add balm terms to optimization problem
+    // create voxhess object
+    ceres_error_terms::VoxHess voxhess(map);
+    // procress voxhess
+  }
   OptimizationProblem* problem = new OptimizationProblem(map, mission_ids);
+
+  size_t num_balm_constraints_added = 0u;
+  if (options.add_balm_constraints) {
+  }
+
   size_t num_visual_constraints_added = 0u;
   if (options.add_visual_constraints) {
     num_visual_constraints_added = addLandmarkTerms(
@@ -176,6 +192,8 @@ OptimizationProblem* constructOptimizationProblem(
     num_inertial_constraints_added = addInertialTerms(
         options.fix_gyro_bias, options.fix_accel_bias, options.fix_velocity,
         options.gravity_magnitude, problem);
+    LOG(INFO) << "Added " << num_inertial_constraints_added
+              << " inertial constraints.";
     if (num_inertial_constraints_added == 0u) {
       LOG(WARNING)
           << "WARNING: Inertial constraints enabled, but none "

@@ -8,50 +8,6 @@
 #include <maplab-common/threading-helpers.h>
 #include <resources-common/point-cloud.h>
 
-#include "dense-reconstruction/balm/state-buffer.h"
-#include "dense-reconstruction/balm/inertial-error-term.h"
-#include "dense-reconstruction/balm/common.h"
-#include "dense-reconstruction/balm/inertial-terms.h" 
-#include "dense-reconstruction/balm/test-jac.h"
-
-#include <Eigen/Core>
-#include <aslam/common/pose-types.h>
-#include <gflags/gflags.h>
-#include <kindr/minimal/common.h>
-#include <maplab-common/threading-helpers.h>
-#include <resources-common/point-cloud.h>
-
-#include <chrono>
-#include <cstring>
-#include <malloc.h>
-#include <string>
-#include <cstdint> 
-
-#include <aslam/common/timer.h>
-#include <aslam/common/memory.h>
-#include <aslam/common/unique-id.h>
-#include <glog/logging.h>
-#include <vi-map/vi-map.h>
-#include <console-common/console.h>
-#include <dense-reconstruction/conversion-tools.h>
-#include <dense-reconstruction/pmvs-file-utils.h>
-#include <dense-reconstruction/pmvs-interface.h>
-#include <dense-reconstruction/stereo-dense-reconstruction.h>
-#include <depth-integration/depth-integration.h>
-#include <gflags/gflags.h>
-#include <map-manager/map-manager.h>
-#include <maplab-common/conversions.h>
-#include <maplab-common/file-system-tools.h>
-#include <vi-map/unique-id.h>
-#include <vi-map/vi-map.h>
-#include <memory>
-
-#include <ceres-error-terms/parameterization/quaternion-param-jpl.h>
-#include <imu-integrator/imu-integrator.h>
-#include <maplab-common/quaternion-math.h>
-#include <iostream>
-
-
 #include <thread>
 #include <vector>
 
@@ -436,7 +392,7 @@ class OctoTreeNode {
     }
   }
 };
-namespace balm_error_terms{
+
 class BALM2 {
  public:
   BALM2() {}
@@ -489,303 +445,35 @@ class BALM2 {
     return residual;
   }
 
-  void damping_iter(aslam::TransformationVector& x_stats, VoxHess& voxhess, vi_map::VIMap& map) {
-    
-    //double u = 0.01, v = 2;
+  void damping_iter(aslam::TransformationVector& x_stats, VoxHess& voxhess) {
     double u = 0.01, v = 2;
-    double lambda = 0.01;
-    const int num_vertices = map.numVertices();
+    Eigen::MatrixXd D(6 * win_size, 6 * win_size),
+        Hess(6 * win_size, 6 * win_size);
+    Eigen::VectorXd JacT(6 * win_size), dxi(6 * win_size);
 
-    // Allocate space for matrices
-    Eigen::VectorXd li_min_jacT(6 * win_size), 
-                    li_jacT(kFullResidualSize * win_size),
-                    dxi(kFullResidualSize * num_vertices), 
-                    imu_jacT_r(kUpdateSize * num_vertices),
-                    res_stacked(kFullResidualSize * num_vertices * 2),
-                    jacT_r_stacked(kUpdateSize * num_vertices);
-
-    
-    Eigen::MatrixXd li_min_hess(6 * win_size, 6 * win_size),
-                    li_hess(kFullResidualSize * win_size, kFullResidualSize * win_size),
-                    imu_hess(kUpdateSize * num_vertices, kUpdateSize * num_vertices),
-                    hess(kUpdateSize * num_vertices, kUpdateSize * num_vertices),
-                    D(kUpdateSize * num_vertices, kUpdateSize * num_vertices),
-                    Identity(kUpdateSize * num_vertices, kUpdateSize * num_vertices),
-                    jac_stacked(kUpdateSize * num_vertices * 2, kUpdateSize * num_vertices),
-                    hess_stacked(kUpdateSize * num_vertices, kUpdateSize * num_vertices);
-    
-    /*
-    Eigen::SparseMatrix<double> D(kFullResidualSize * num_vertices, kFullResidualSize * num_vertices),
-                                hess(kFullResidualSize * num_vertices, kFullResidualSize * num_vertices),
-                                imu_jac(num_vertices * kFullResidualSize, num_vertices * kFullResidualSize),
-                                copy_imu_jac(num_vertices * kFullResidualSize, num_vertices * kFullResidualSize);
-                                imu_hess(kFullResidualSize * num_vertices, kFullResidualSize * num_vertices),
-                                jac_stacked(kFullResidualSize * num_vertices * 2, kFullResidualSize * num_vertices),
-                                hess_stacked(kFullResidualSize * num_vertices, kFullResidualSize * num_vertices);
-                    */
-
-    li_jacT.setZero();
-    li_hess.setZero();
     D.setIdentity();
-    Identity.setIdentity();
-
-    // set up other variables
-    double residual1, residual2, q, residual_balm, residual_inertial;
+    double residual1, residual2, q;
     bool is_calc_hess = true;
     aslam::TransformationVector x_stats_temp = x_stats;
 
-    Eigen::Matrix<double, Eigen::Dynamic, 1> updated_states;
-    updated_states.resize(kStateSize * num_vertices, 1);
-    // setup for inertial integration
-    // create inertial residual block
-    ResidualBlockSet inertial_residual_block;
-    // create state buffer
-    OptimizationStateBuffer buffer;
-    int num_blocks_added = addInertialTermsForEdges(&map, inertial_residual_block, &buffer);
-    LOG(INFO) << "Added " << num_blocks_added << " inertial residual blocks to the optimization problem.";
-    // check buffer
-    LOG(INFO) << "Checking buffer...";
-    checkBuffer(&buffer, &map);
-    LOG(INFO) << "Buffer checked.";
-
-    // get vertex ids
-    pose_graph::VertexIdList vertex_ids;
-    map.getAllVertexIds(&vertex_ids);
-
-    // create imu_jac, imu_res and imu_params pointers
-    Eigen::Matrix<double, Eigen::Dynamic, 1> imu_res;
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> imu_jac;
-    Eigen::Matrix<double, Eigen::Dynamic, 1> imu_params;
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> copy_imu_jac;
-    // allocate memory for imu_params, imu_res and imu_jac
-    
-    //CHECK_EQ(num_vertices, win_size);
-    imu_res.resize(num_vertices * kFullResidualSize, 1);
-    //imu_res.setZero();
-    imu_jac.resize(num_vertices * kFullResidualSize, num_vertices * kUpdateSize);
-    imu_jac.setIdentity();
-    copy_imu_jac.resize(num_vertices * kFullResidualSize, num_vertices * kUpdateSize);
-    //imu_jac.setZero();
-    imu_params.resize(num_vertices * kStateSize, 1);
-    //imu_params.setZero();
-    
-    // Optimization Loop
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 10; i++) {
       if (is_calc_hess) {
-        // calculate the imu_res and imu_jac
-        timing::TimerImpl jac_timer("balm_evaluate_inertial_jacobian");
-        // compute the inertial jacobian
-        copy_imu_jac = imu_jac;
-        evaluateInertialJacobian(inertial_residual_block, &map, imu_jac, imu_res, imu_params);
-        // compute the imu hessian (takes very long time)
-        if ((copy_imu_jac.isApprox(imu_jac, 1e-6))) {
-          LOG(WARNING) << "Jacobian has not changed! in iteration " << i;
-        }
-        residual_balm = divide_thread(x_stats, voxhess, li_min_hess, li_min_jacT);
-        residual_inertial = imu_res.squaredNorm();
-
-        ////////////////////////////////////////
-        double res_q1 = 0;
-        double res_q2 = 0;
-        double res_q3 = 0;
-        double res_gbx = 0;
-        double res_gby = 0;
-        double res_gbz = 0;
-        double res_vx = 0;
-        double res_vy = 0;
-        double res_vz = 0;
-        double res_bax = 0;
-        double res_bay = 0;
-        double res_baz = 0;
-        double res_px = 0;
-        double res_py = 0;
-        double res_pz = 0;
-
-        for (int j = 0; j < num_vertices; j++) {
-          res_q1 += imu_res.block<1, 1>(kFullResidualSize * j, 0).squaredNorm();
-          res_q2 += imu_res.block<1, 1>(kFullResidualSize * j + 1, 0).squaredNorm();
-          res_q3 += imu_res.block<1, 1>(kFullResidualSize * j + 2, 0).squaredNorm();
-          res_gbx += imu_res.block<1, 1>(kFullResidualSize * j + 3, 0).squaredNorm();
-          res_gby += imu_res.block<1, 1>(kFullResidualSize * j + 4, 0).squaredNorm();
-          res_gbz += imu_res.block<1, 1>(kFullResidualSize * j + 5, 0).squaredNorm();
-          res_vx += imu_res.block<1, 1>(kFullResidualSize * j + 6, 0).squaredNorm();
-          res_vy += imu_res.block<1, 1>(kFullResidualSize * j + 7, 0).squaredNorm();
-          res_vz += imu_res.block<1, 1>(kFullResidualSize * j + 8, 0).squaredNorm();
-          res_bax += imu_res.block<1, 1>(kFullResidualSize * j + 9, 0).squaredNorm();
-          res_bay += imu_res.block<1, 1>(kFullResidualSize * j + 10, 0).squaredNorm();
-          res_baz += imu_res.block<1, 1>(kFullResidualSize * j + 11, 0).squaredNorm();
-          res_px += imu_res.block<1, 1>(kFullResidualSize * j + 12, 0).squaredNorm();
-          res_py += imu_res.block<1, 1>(kFullResidualSize * j + 13, 0).squaredNorm();
-          res_pz += imu_res.block<1, 1>(kFullResidualSize * j + 14, 0).squaredNorm();
-        }
-        LOG(INFO) << "Residuals: q: " << res_q1 << " " << res_q2 << " " << res_q3 << " gyro: " << res_gbx << " " << res_gby << " " << res_gbz << " vel: " << res_vx << " " << res_vy << " " << res_vz << " acc: " << res_bax << " " << res_bay << " " << res_baz << " pos: " << res_px << " " << res_py << " " << res_pz;
-        ////////////////////////////////////////
-        residual1 = residual_inertial;//residual_balm + residual_inertial;
-        LOG(INFO) << "Residual balm: " << residual_balm;
-        LOG(INFO) << "Residual inertial: " << residual_inertial;
-        LOG(INFO) << "Evaluated inertial jacobian in " << jac_timer.Stop() << " s.";
-
-        imu_hess = imu_jac.transpose() * imu_jac;
-        imu_jacT_r = imu_jac.transpose() * imu_res;
-        hess = imu_hess; //li_hess + imu_hess;
-        D.diagonal() = hess.diagonal();
-
-        //jac_stacked.block(0, 0, kFullResidualSize * num_vertices, kFullResidualSize * num_vertices) = imu_jac;
-        //jac_stacked.block(kFullResidualSize * num_vertices, 0, kFullResidualSize * num_vertices, kFullResidualSize * num_vertices) = u * D;
-
-        //res_stacked.block(0, 0, kFullResidualSize * num_vertices, 1) = imu_res;
-        //res_stacked.block(kFullResidualSize * num_vertices, 0, kFullResidualSize * num_vertices, 1).setZero();
-
-        //hess_stacked = jac_stacked.transpose() * jac_stacked;
-        //jacT_r_stacked = jac_stacked.transpose() * res_stacked;
-
-        // compute the li_min_jacT and li_min_hess
-        
-
-        // insert the li_min_jacT into imu_jac
-        timing::TimerImpl insert_timer("balm_insert_jacT_into_imu_jac");
-        for (int j = 0; j < num_vertices; j++) {
-          li_jacT.block<3, 1>(kFullResidualSize * j, 0) = li_min_jacT.block<3, 1>(6 * j, 0);
-          li_jacT.block<3, 1>(kFullResidualSize * j + 12, 0) = li_min_jacT.block<3, 1>(6 * j + 3, 0);
-
-          li_hess.block<3, 3>(kFullResidualSize * j, kFullResidualSize * j) = li_min_hess.block<3, 3>(6 * j, 6 * j);
-          li_hess.block<3, 3>(kFullResidualSize * j + 12, kFullResidualSize * j + 12) = li_min_hess.block<3, 3>(6 * j + 3, 6 * j + 3);
-          li_hess.block<3, 3>(kFullResidualSize * j, kFullResidualSize * j + 12) = li_min_hess.block<3, 3>(6 * j, 6 * j + 3);
-          li_hess.block<3, 3>(kFullResidualSize * j + 12, kFullResidualSize * j) = li_min_hess.block<3, 3>(6 * j + 3, 6 * j);
-        }
-        LOG(INFO) << "Inserted small jacobians into larger jacobians " << insert_timer.Stop() << " s.";
-
-      }
-      if (true) {
-        //timing::TimerImpl checks_timer("balm_checks");
-        //LOG(INFO) << "Starting checks...";
-        // check that all dimensions are correct
-        //LOG(INFO) << "Checking dimensions...";
-        CHECK_EQ(li_hess.rows(), kFullResidualSize * win_size);
-        CHECK_EQ(li_hess.cols(), kFullResidualSize * win_size);
-        CHECK_EQ(li_jacT.rows(), kFullResidualSize * win_size);
-        CHECK_EQ(li_jacT.cols(), 1);
-        CHECK_EQ(D.rows(), kUpdateSize * num_vertices);
-        CHECK_EQ(D.cols(), kUpdateSize * num_vertices);
-        CHECK_EQ(imu_res.rows(), kFullResidualSize * num_vertices);
-        CHECK_EQ(imu_res.cols(), 1);
-        //CHECK_EQ(imu_jac.rows(), li_hess.rows());
-        //CHECK_EQ(imu_jac.cols(), li_hess.cols());
-
-        //LOG(INFO) << "Checking matrix entries...";
-        // check that all matrix entries are valid
-        CHECK(imu_res.allFinite());
-        CHECK(imu_jac.allFinite());
-        CHECK(imu_hess.allFinite());
-        CHECK(imu_params.allFinite());
-        CHECK(li_hess.allFinite());
-        CHECK(li_jacT.allFinite());
-        CHECK(imu_jacT_r.allFinite());
-        // check that all matrix entries are not nan
-        //LOG(INFO) << "Checking matrix entries for NaN...";
-        CHECK(!imu_res.hasNaN());
-        CHECK(!imu_jac.hasNaN());
-        CHECK(!imu_hess.hasNaN());
-        CHECK(!imu_params.hasNaN());
-        CHECK(!li_hess.hasNaN());
-        CHECK(!li_jacT.hasNaN());
-        CHECK(!imu_jacT_r.hasNaN());
-
-        //LOG(INFO) << "Checks passed: " << checks_timer.Stop() << " s.";
+        residual1 = divide_thread(x_stats, voxhess, Hess, JacT);
       }
 
-      // solve the linear system
-      LOG(INFO) << "Solving linear system...";
-      //Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(hess + u * Identity);
-      //Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(hess_stacked);
-      //LOG(INFO) << "Eigenvalues: " << eigensolver.eigenvalues();
-      //LOG(INFO) << "Eigenvectors: " << eigensolver.eigenvectors();
-      //LOG(INFO) << "Max eigenvalue: " << eigensolver.eigenvalues().maxCoeff();
-      //LOG(INFO) << "Min eigenvalue: " << eigensolver.eigenvalues().minCoeff();
-      //LOG(INFO) << "Condition number: " << eigensolver.eigenvalues().maxCoeff() / eigensolver.eigenvalues().minCoeff();
-      timing::TimerImpl it_timer("balm_solve_linear_system");
-      dxi = (hess + u * Identity).ldlt().solve(- imu_jacT_r);//- li_jacT - imu_jacT_r);
-      //dxi = hess_stacked.ldlt().solve(-jacT_r_stacked);
-      LOG(INFO) << "Solved linear system in " << it_timer.Stop() << " s.";
-      CHECK(!dxi.hasNaN());
-      for (int j = 0; j < num_vertices; j++) {
-        /*x_stats_temp[j].getRotation() =
+      D.diagonal() = Hess.diagonal();
+      dxi = (Hess + u * D).ldlt().solve(-JacT);
+
+      for (int j = 0; j < win_size; j++) {
+        x_stats_temp[j].getRotation() =
             x_stats[j].getRotation() *
-            aslam::Quaternion::exp(dxi.block<3, 1>(kFullResidualSize * j, 0));
+            aslam::Quaternion::exp(dxi.block<3, 1>(6 * j, 0));
         x_stats_temp[j].getPosition() =
-            x_stats[j].getPosition() + dxi.block<3, 1>(kFullResidualSize * j + 12, 0);*/
-        
-        // save temporary states
-        
-        Eigen::Vector4d q_I_M_old = imu_params.block<4, 1>(kStateSize * j, 0);
-        Eigen::Quaterniond q_I_M_new;
-        Eigen::Vector4d delta_q = aslam::Quaternion::exp(dxi.block<3, 1>(kFullResidualSize * j, 0)).toImplementation().coeffs();
-        common::positiveQuaternionProductJPL(
-            q_I_M_old, delta_q, q_I_M_new.coeffs());
-        ensurePositiveQuaternion(q_I_M_new.coeffs());
-        assertValidQuaternion(q_I_M_new);
-
-        updated_states.block<4, 1>(kStateSize * j, 0) = q_I_M_new.coeffs();
-        updated_states.block<12, 1>(kStateSize * j + 4, 0) = dxi.block<12, 1>(kFullResidualSize * j + 3, 0) + imu_params.block<12, 1>(kStateSize * j + 4, 0);
-        /*
-        Eigen::Vector4d q_I_M_old = imu_params.block<4, 1>(kStateSize * j, 0);
-        Eigen::Quaterniond q_I_M_new;
-        Eigen::Vector4d delta_q = dxi.block<4, 1>(kUpdateSize * j, 0);
-        common::positiveQuaternionProductJPL(
-            q_I_M_old, delta_q, q_I_M_new.coeffs());
-        ensurePositiveQuaternion(q_I_M_new.coeffs());
-        assertValidQuaternion(q_I_M_new);
-
-        updated_states.block<4, 1>(kStateSize * j, 0) = q_I_M_new.coeffs();
-        updated_states.block<12, 1>(kStateSize * j + 4, 0) = dxi.block<12, 1>(kUpdateSize * j + 4, 0) + imu_params.block<12, 1>(kStateSize * j + 4, 0);
-        */
+            x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
       }
-      double q1 = 0.5 * dxi.dot(u * Identity * dxi - imu_jacT_r);// - li_jacT - imu_jacT_r);
+      double q1 = 0.5 * dxi.dot(u * D * dxi - JacT);
 
-      residual_balm = only_residual(x_stats_temp, voxhess);
-      calculateResiduals(inertial_residual_block, &map, imu_res, updated_states);
-      ////////////////////////////////////////
-      double res_q1 = 0;
-      double res_q2 = 0;
-      double res_q3 = 0;
-      double res_gbx = 0;
-      double res_gby = 0;
-      double res_gbz = 0;
-      double res_vx = 0;
-      double res_vy = 0;
-      double res_vz = 0;
-      double res_bax = 0;
-      double res_bay = 0;
-      double res_baz = 0;
-      double res_px = 0;
-      double res_py = 0;
-      double res_pz = 0;
-
-      for (int j = 0; j < num_vertices; j++) {
-        res_q1 += imu_res.block<1, 1>(kFullResidualSize * j, 0).squaredNorm();
-        res_q2 += imu_res.block<1, 1>(kFullResidualSize * j + 1, 0).squaredNorm();
-        res_q3 += imu_res.block<1, 1>(kFullResidualSize * j + 2, 0).squaredNorm();
-        res_gbx += imu_res.block<1, 1>(kFullResidualSize * j + 3, 0).squaredNorm();
-        res_gby += imu_res.block<1, 1>(kFullResidualSize * j + 4, 0).squaredNorm();
-        res_gbz += imu_res.block<1, 1>(kFullResidualSize * j + 5, 0).squaredNorm();
-        res_vx += imu_res.block<1, 1>(kFullResidualSize * j + 6, 0).squaredNorm();
-        res_vy += imu_res.block<1, 1>(kFullResidualSize * j + 7, 0).squaredNorm();
-        res_vz += imu_res.block<1, 1>(kFullResidualSize * j + 8, 0).squaredNorm();
-        res_bax += imu_res.block<1, 1>(kFullResidualSize * j + 9, 0).squaredNorm();
-        res_bay += imu_res.block<1, 1>(kFullResidualSize * j + 10, 0).squaredNorm();
-        res_baz += imu_res.block<1, 1>(kFullResidualSize * j + 11, 0).squaredNorm();
-        res_px += imu_res.block<1, 1>(kFullResidualSize * j + 12, 0).squaredNorm();
-        res_py += imu_res.block<1, 1>(kFullResidualSize * j + 13, 0).squaredNorm();
-        res_pz += imu_res.block<1, 1>(kFullResidualSize * j + 14, 0).squaredNorm();
-      }
-      LOG(INFO) << "Residuals: q: " << res_q1 << " " << res_q2 << " " << res_q3 << " gyro: " << res_gbx << " " << res_gby << " " << res_gbz << " vel: " << res_vx << " " << res_vy << " " << res_vz << " acc: " << res_bax << " " << res_bay << " " << res_baz << " pos: " << res_px << " " << res_py << " " << res_pz;
-      ////////////////////////////////////////
-      
-      residual_inertial = imu_res.squaredNorm();
-      residual2 = residual_inertial;//residual_balm + residual_inertial;
-
-      LOG(INFO) << "Residual balm: " << residual_balm;
-      LOG(INFO) << "Residual inertial: " << residual_inertial;
+      residual2 = only_residual(x_stats_temp, voxhess);
 
       q = (residual1 - residual2);
       printf(
@@ -794,7 +482,6 @@ class BALM2 {
 
       if (q > 0) {
         x_stats = x_stats_temp;
-        saveIntermediateResults(updated_states, inertial_residual_block);
 
         q = q / q1;
         v = 2;
@@ -811,11 +498,8 @@ class BALM2 {
       if (fabs(residual1 - residual2) / residual1 < 1e-6)
         break;
     }
-  
-  
   }
-
-}; 
+};
 
 void cut_voxel(
     SurfaceMap& surface_map, const resources::PointCloud& points_S,
@@ -866,5 +550,5 @@ void cut_voxel(
     }
   }
 }
-} // namespace balm_error_terms
+
 #endif  // BALM_H_

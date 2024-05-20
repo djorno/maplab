@@ -1,11 +1,7 @@
-#include "dense-reconstruction/balm/bavoxel.h"
 #include "dense-reconstruction/dense-reconstruction-plugin.h"
-#include "dense-reconstruction/voxblox-params.h"
+#include "dense-reconstruction/balm/bavoxel.h"
 #include "dense-reconstruction/balm/li-map.h"
-#include "dense-reconstruction/balm/inertial-terms.h"
-#include "dense-reconstruction/balm/state-buffer.h"
-#include "dense-reconstruction/balm/common.h"
-#include "dense-reconstruction/balm/vi-map-lidar.h"
+#include "dense-reconstruction/voxblox-params.h"
 
 #include <chrono>
 #include <cstring>
@@ -787,32 +783,30 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         const size_t original_cache_size = map->getMaxCacheSize();
         map->setMaxCacheSize(1);
         depth_integration::IntegrationFunctionPointCloudMaplabWithExtrasAndImu
-            integration_function = [&map, &poses_G_S, &time_last_kf,
-                                    &last_mission_id, &pointclouds, &keyframe_timestamps,
-                                    &keyframe_velocities, &keyframe_gyro_bias, &keyframe_accel_bias, &poses_M_B](
-                                       const aslam::Transformation& T_G_S,
-                                       const aslam::Transformation& T_M_B,
-                                       const Eigen::Vector3d& v_M_B,
-                                       const Eigen::Vector3d& gb_B,
-                                       const Eigen::Vector3d& ab_B,
-                                       const int64_t timestamp_ns,
-                                       const vi_map::MissionId& mission_id,
-                                       const size_t /*counter*/,
-                                       const resources::PointCloud& points_S) {
-              poses_G_S.emplace_back(T_G_S);
-              time_last_kf = timestamp_ns;
-              last_mission_id = mission_id;
-              pointclouds.emplace_back(points_S);
-              keyframe_timestamps.emplace_back(timestamp_ns);
-              keyframe_velocities.emplace_back(v_M_B);
-              keyframe_gyro_bias.emplace_back(gb_B);
-              keyframe_accel_bias.emplace_back(ab_B);
-              poses_M_B.emplace_back(T_M_B);
+            integration_function =
+                [&map, &poses_G_S, &time_last_kf, &last_mission_id,
+                 &pointclouds, &keyframe_timestamps, &keyframe_velocities,
+                 &keyframe_gyro_bias, &keyframe_accel_bias, &poses_M_B](
+                    const aslam::Transformation& T_G_S,
+                    const aslam::Transformation& T_M_B,
+                    const Eigen::Vector3d& v_M_B, const Eigen::Vector3d& gb_B,
+                    const Eigen::Vector3d& ab_B, const int64_t timestamp_ns,
+                    const vi_map::MissionId& mission_id,
+                    const size_t /*counter*/,
+                    const resources::PointCloud& points_S) {
+                  poses_G_S.emplace_back(T_G_S);
+                  time_last_kf = timestamp_ns;
+                  last_mission_id = mission_id;
+                  pointclouds.emplace_back(points_S);
+                  keyframe_timestamps.emplace_back(timestamp_ns);
+                  keyframe_velocities.emplace_back(v_M_B);
+                  keyframe_gyro_bias.emplace_back(gb_B);
+                  keyframe_accel_bias.emplace_back(ab_B);
+                  poses_M_B.emplace_back(T_M_B);
 
-
-              // Increase cache size by one
-              map->setMaxCacheSize(map->getMaxCacheSize() + 1u);
-            };
+                  // Increase cache size by one
+                  map->setMaxCacheSize(map->getMaxCacheSize() + 1u);
+                };
 
         const int64_t time_threshold_ns =
             FLAGS_balm_kf_time_threshold_s * kSecondsToNanoSeconds;
@@ -858,19 +852,13 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
             mission_ids, input_resource_type,
             FLAGS_dense_depth_map_reprojection_use_undistorted_camera, *map,
             integration_function, selection_function);
-        
+
         // get vi_map::VIMap
         vi_map::VIMap& vi_map = *map.get();
         LOG(INFO) << "Number of visual vertices: " << vi_map.numVertices();
         LOG(INFO) << "Number of lidar before: " << vi_map.numLidarVertices();
-        li_map::addLidarToMap(mission_ids, 
-                      vi_map, 
-                      poses_M_B, 
-                      keyframe_velocities, 
-                      keyframe_gyro_bias, 
-                      keyframe_accel_bias,
-                      keyframe_timestamps);
-        
+        li_map::addLidarToMap(mission_ids, vi_map, keyframe_timestamps);
+
         win_size = poses_G_S.size();
         LOG(INFO) << "Selected a total of " << poses_G_S.size()
                   << " LiDAR scans as keyframes.";
@@ -883,7 +871,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
 
         SurfaceMap surface_map;
         for (size_t i = 0; i < win_size; ++i) {
-          balm_error_terms::cut_voxel(surface_map, pointclouds[i], poses_G_S[i], i, win_size);
+          cut_voxel(surface_map, pointclouds[i], poses_G_S[i], i, win_size);
         }
 
         VoxHess voxhess;
@@ -905,9 +893,8 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
             "balm_planes", ros_planes_G);
 
         // Optimize the planes together
-        balm_error_terms::BALM2 opt_lsv;
-        //opt_lsv.damping_iter(poses_G_S, voxhess, li_map);
-
+        BALM2 opt_lsv;
+        // opt_lsv.damping_iter(poses_G_S, voxhess);
 
         // Free up the memory
         for (auto iter = surface_map.begin(); iter != surface_map.end();

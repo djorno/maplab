@@ -100,13 +100,14 @@ void addLandmarkTermForKeypoint(
   double* camera_C_p_CI = camera_q_CI + 4;
 
   // List of cost term arguments shared between all landmark types.
-  std::vector<double*> cost_term_args = {landmark.get_p_B_Mutable(),
-                                         landmark_store_vertex_q_IM__M_p_MI,
-                                         landmark_store_baseframe_q_GM__G_p_GM,
-                                         observer_baseframe_q_GM__G_p_GM,
-                                         vertex_q_IM__M_p_MI,
-                                         camera_q_CI,
-                                         camera_C_p_CI};
+  std::vector<double*> cost_term_args = {
+      landmark.get_p_B_Mutable(),
+      landmark_store_vertex_q_IM__M_p_MI,
+      landmark_store_baseframe_q_GM__G_p_GM,
+      observer_baseframe_q_GM__G_p_GM,
+      vertex_q_IM__M_p_MI,
+      camera_q_CI,
+      camera_C_p_CI};
 
   const double observation_uncertainty =
       visual_frame.getKeypointMeasurementUncertainty(keypoint_idx);
@@ -375,6 +376,8 @@ int addInertialTerms(
     pose_graph::EdgeIdList edges;
     map->getAllEdgeIdsIncLidarInMissionAlongGraph(
         mission_id, pose_graph::Edge::EdgeType::kViwls, &edges);
+    // get the amount of edges in edges
+    LOG(INFO) << "Edges: " << edges.size();
 
     const vi_map::Imu& imu_sensor = map->getMissionImu(mission_id);
     const vi_map::ImuSigmas& imu_sigmas = imu_sensor.getImuSigmas();
@@ -434,8 +437,7 @@ int addInertialTermsForEdges(
   int num_residuals_added = 0;
   for (const pose_graph::EdgeId edge_id : edges) {
     const vi_map::ViwlsEdge& inertial_edge =
-        map->getEdgeAs<vi_map::ViwlsEdge>(edge_id);
-
+        map->getAnyEdgeAs<vi_map::ViwlsEdge>(edge_id);
     std::shared_ptr<ceres_error_terms::InertialErrorTerm> inertial_term_cost(
         new ceres_error_terms::InertialErrorTerm(
             inertial_edge.getImuData(), inertial_edge.getImuTimestamps(),
@@ -493,7 +495,28 @@ int addInertialTermsForEdges(
 
   return num_residuals_added;
 }
+/*
+int addBALMTerms(const std::shared_ptr<ceres::LocalParametrization>&
+pose_parametrization, const pose_graph::VertexIdList& vertices,
+    OptimizationProblem* problem) {
 
+    CHECK_NOTNULL(problem);
+    vi_map::VIMap* map = CHECK_NOTNULL(problem->getMapMutable());
+
+    const OptimizationProblem::LocalParameterizations& parameterizations =
+        problem->getLocalParameterizations();
+
+    OptimizationStateBuffer* buffer =
+CHECK_NOTNULL(problem->getOptimizationStateBufferMutable());
+
+    size_t num_residuals_added = 0u;
+
+    const vi_map::MissionIdSet& missions_to_optimize = problem->getMissionIds();
+    for (const vi_map::MissionId& mission_id : missions_to_optimize) {
+        for ()
+
+    }
+*/
 int addWheelOdometryTerms(
     const bool fix_extrinsics, OptimizationProblem* problem) {
   CHECK_NOTNULL(problem);

@@ -18,8 +18,6 @@
   <depend>maplab_common</depend>
   <depend>vi_map</depend>
   <depend>simulation</depend>
-  <depend>ceres_catkin</depend>
-  <depend>ceres_error_terms</depend>
   <depend>imu_integrator_rk4</depend>
   <depend>sensors</depend>
   <depend>posegraph</depend>

@@ -51,6 +51,9 @@ struct ViProblemOptions {
   bool fix_absolute_pose_sensor_extrinsics;
   bool fix_baseframes;
 
+  // BALM constraints
+  bool add_balm_constraints;
+
   bool add_loop_closure_edges;
 
   bool enable_visual_outlier_rejection;

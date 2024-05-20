@@ -326,8 +326,8 @@ pose_graph::VertexId VIMap::getLandmarkStoreVertexId(
 void VIMap::sparsifyMission(
     const vi_map::MissionId& mission_id, int every_nth_vertex_to_keep) {
   CHECK_GT(every_nth_vertex_to_keep, 0);
-  CHECK(hasMission(mission_id)) << "The mission " << mission_id << " is not "
-                                << "present or selected.";
+  CHECK(hasMission(mission_id))
+      << "The mission " << mission_id << " is not " << "present or selected.";
 
   const vi_map::VIMission& mission = getMission(mission_id);
   const pose_graph::VertexId& root_vertex_id = mission.getRootVertexId();
@@ -1008,8 +1008,8 @@ void VIMap::associateMissionSensors(
           !id_flag.empty() && sensor_id.fromHexString(id_flag) &&
           (ids_of_type.count(sensor_id) > 0u))
           << "If more than one " << sensor_name
-          << " is provided in the sensor manager, "
-          << "use --" << flag_name << " to select which one to use.";
+          << " is provided in the sensor manager, " << "use --" << flag_name
+          << " to select which one to use.";
     } else {
       sensor_id = *(ids_of_type.begin());
     }
@@ -1955,8 +1955,8 @@ const vi_map::MissionId VIMap::duplicateMission(
           const LandmarkIdToLandmarkIdIterator it =
               source_to_dest_landmark_id_map.find(landmark.id());
           CHECK(it != source_to_dest_landmark_id_map.end())
-              << "Landmark with "
-              << "id" << landmark.id() << " is not present in the landmark to "
+              << "Landmark with " << "id" << landmark.id()
+              << " is not present in the landmark to "
               << "landmark duplication map. Possibly it has no observations?";
 
           new_landmark_id = it->second;
@@ -2253,9 +2253,7 @@ unsigned int VIMap::getVertexCountInMission(
   unsigned int vertex_count = 0;
   do {
     ++vertex_count;
-  } while (getNextVertex(
-      current_vertex_id,
-      &current_vertex_id));
+  } while (getNextVertex(current_vertex_id, &current_vertex_id));
   return vertex_count;
 }
 
@@ -2310,9 +2308,13 @@ void VIMap::getAllVertexIdsInMissionAlongGraph(
 
   do {
     vertices->push_back(current_vertex_id);
-  } while (getNextVertex(
-      current_vertex_id,
-      &current_vertex_id));
+  } while (getNextVertex(current_vertex_id, &current_vertex_id));
+}
+
+void VIMap::getAllVertexIdsIncLidarInMission(
+    const vi_map::MissionId& mission_id,
+    pose_graph::VertexIdList* vertices) const {
+  getAllVertexIdsIncLidarInMissionAlongGraph(mission_id, vertices);
 }
 
 void VIMap::getAllVertexIdsIncLidarInMissionAlongGraph(
@@ -2351,10 +2353,7 @@ void VIMap::getAllVertexIdsIncLidarInMissionAlongGraph(
   do {
     vertices->push_back(current_vertex_id);
     ++count;
-  } while (getNextVertexIncludingLidar(
-      current_vertex_id,
-      &current_vertex_id));
-  LOG(INFO) << "Number of vertices in mission " << mission_id << ": " << count;
+  } while (getNextVertexIncludingLidar(current_vertex_id, &current_vertex_id));
 }
 
 void VIMap::getAllVertexIdsAlongGraphsSortedByTimestamp(
@@ -2423,9 +2422,7 @@ void VIMap::getAllEdgeIdsInMissionAlongGraph(
     edges->erase(
         std::remove_if(edges->begin(), edges->end(), is_edge_type_different),
         edges->end());
-  } while (getNextVertex(
-      current_vertex_id,
-      &current_vertex_id));
+  } while (getNextVertex(current_vertex_id, &current_vertex_id));
 }
 
 void VIMap::getAllEdgeIdsIncLidarInMissionAlongGraph(
@@ -2448,8 +2445,7 @@ void VIMap::getAllEdgeIdsIncLidarInMissionAlongGraph(
     if (getAnyVertex(current_vertex_id).hasOutgoingLidarEdges()) {
       getAnyVertex(current_vertex_id).getOutgoingLidarEdges(&outgoing_edges);
       edges->insert(edges->end(), outgoing_edges.begin(), outgoing_edges.end());
-    }
-    else {
+    } else {
       getAnyVertex(current_vertex_id).getOutgoingEdges(&outgoing_edges);
       edges->insert(edges->end(), outgoing_edges.begin(), outgoing_edges.end());
     }
@@ -2474,19 +2470,21 @@ void VIMap::getAllEdgeIdsIncLidarInMissionAlongGraph(
 
   std::function<bool(pose_graph::EdgeId&)> is_edge_type_different =  // NOLINT
       [&](const pose_graph::EdgeId& edge_id) {
-        return getEdgeType(edge_id) != edge_type;
+        return getAnyEdgeType(edge_id) != edge_type;
       };
-  bool vertex_is_lidar = false;
+
   do {
     pose_graph::EdgeIdSet outgoing_edges;
-    getAnyVertex(current_vertex_id).getOutgoingEdges(&outgoing_edges);
+    if (getAnyVertex(current_vertex_id).hasOutgoingLidarEdges()) {
+      getAnyVertex(current_vertex_id).getOutgoingLidarEdges(&outgoing_edges);
+    } else {
+      getAnyVertex(current_vertex_id).getOutgoingEdges(&outgoing_edges);
+    }
     edges->insert(edges->end(), outgoing_edges.begin(), outgoing_edges.end());
     edges->erase(
         std::remove_if(edges->begin(), edges->end(), is_edge_type_different),
         edges->end());
-  } while (getNextVertexIncludingLidar(
-      current_vertex_id,
-      &current_vertex_id));
+  } while (getNextVertexIncludingLidar(current_vertex_id, &current_vertex_id));
 }
 
 bool VIMap::hasEdgesOfType(pose_graph::Edge::EdgeType edge_type) const {

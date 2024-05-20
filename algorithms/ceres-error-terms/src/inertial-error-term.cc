@@ -154,6 +154,10 @@ bool InertialErrorTerm::Evaluate(
         &integration_cache_.Q_accum);
 
     integration_cache_.L_cholesky_Q_accum.compute(integration_cache_.Q_accum);
+    CHECK(integration_cache_.end_state.toVector().allFinite())
+        << "Integration failed.";
+    CHECK(integration_cache_.phi_accum.allFinite()) << "Integration failed.";
+    CHECK(integration_cache_.Q_accum.allFinite()) << "Integration failed.";
     integration_cache_.valid = true;
   }
   CHECK(integration_cache_.valid);
@@ -205,13 +209,15 @@ bool InertialErrorTerm::Evaluate(
       J_end.setZero();
       J_end.block<3, 4>(0, 0) = 4.0 * theta_local_end.transpose();
       J_end.block<12, 12>(3, 4) = Eigen::Matrix<double, 12, 12>::Identity();
+      CHECK(J_end.allFinite())
+          << "Jacobian contains NaNs or Infs. Jacobian: " << J_end;
 
       // Since Ceres separates the actual Jacobian from the Jacobian of the
       // local
       // parameterization, we apply the inverse of the local parameterization.
-      // Ceres can then apply the local parameterization Jacobian on top of this
-      // and we get the correct Jacobian in the end. This is necessary since we
-      // propagate the state as error state.
+      // Ceres can then apply the local parameterization Jacobian on top of
+      // this and we get the correct Jacobian in the end. This is necessary
+      // since we propagate the state as error state.
       J_begin.setZero();
       J_begin.block<3, 4>(0, 0) =
           -4.0 * integration_cache_.phi_accum.block<3, 3>(0, 0) *
@@ -223,6 +229,8 @@ bool InertialErrorTerm::Evaluate(
           theta_local_begin.transpose();
       J_begin.block<12, 12>(3, 4) =
           -integration_cache_.phi_accum.block<12, 12>(3, 3);
+      CHECK(J_begin.allFinite())
+          << "Jacobian contains NaNs or Infs. Jacobian: " << J_begin;
 
       // Invert and apply by using backsolve.
       integration_cache_.L_cholesky_Q_accum.matrixL().solveInPlace(J_end);

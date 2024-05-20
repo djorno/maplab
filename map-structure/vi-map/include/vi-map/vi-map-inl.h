@@ -17,8 +17,8 @@
 #include <map-resources/resource-map.h>
 #include <map-resources/temporal-resource-id-buffer.h>
 
-#include "vi-map/vertex.h"
 #include "vi-map/lidar-vertex.h"
+#include "vi-map/vertex.h"
 #include "vi-map/vi-map.h"
 #include "vi-map/vi_map.pb.h"
 
@@ -73,9 +73,8 @@ bool VIMap::hasLidarVertex(const pose_graph::VertexId& id) const {
 bool VIMap::hasAnyVertex(const pose_graph::VertexId& id) const {
   bool vertex_exists = hasVertex(id);
   bool lidar_vertex_exists = hasLidarVertex(id);
-  CHECK(!(vertex_exists && lidar_vertex_exists)) << "Vertex exists in both "
-                                                 << "posegraph and lidar "
-                                                 << "posegraph.";
+  CHECK(!(vertex_exists && lidar_vertex_exists))
+      << "Vertex exists in both " << "posegraph and lidar " << "posegraph.";
   return vertex_exists ^ lidar_vertex_exists;
 }
 
@@ -121,7 +120,8 @@ vi_map::Vertex& VIMap::getAnyVertex(const pose_graph::VertexId& id) {
     return getVertex(id);
   }
 }
-const vi_map::Vertex& VIMap::getAnyVertex(const pose_graph::VertexId& id) const {
+const vi_map::Vertex& VIMap::getAnyVertex(
+    const pose_graph::VertexId& id) const {
   CHECK(id.isValid());
   CHECK(hasAnyVertex(id));
   if (hasLidarVertex(id)) {
@@ -141,18 +141,20 @@ vi_map::LidarVertex& VIMap::getLidarVertex(const pose_graph::VertexId& id) {
 }
 vi_map::LidarVertex* VIMap::getLidarVertexPtr(const pose_graph::VertexId& id) {
   CHECK(id.isValid());
-  vi_map::LidarVertex* vertex_ptr = dynamic_cast<vi_map::LidarVertex*>(  // NOLINT
-      lidar_posegraph.getVertexPtrMutable(id));
+  vi_map::LidarVertex* vertex_ptr =
+      dynamic_cast<vi_map::LidarVertex*>(  // NOLINT
+          lidar_posegraph.getVertexPtrMutable(id));
   CHECK(vertex_ptr != nullptr);
   // CHECK(vertex_ptr->getNCameras() != nullptr);
   return vertex_ptr;
 }
-const vi_map::LidarVertex& VIMap::getLidarVertex(const pose_graph::VertexId& id) const {
+const vi_map::LidarVertex& VIMap::getLidarVertex(
+    const pose_graph::VertexId& id) const {
   CHECK(id.isValid());
   const vi_map::LidarVertex& vertex =
       lidar_posegraph.getVertexPtr(id)->getAs<const vi_map::LidarVertex>();
   // CHECK(vertex.getNCameras() != nullptr);
-  //CHECK(vertex.hasIncomingLidarEdges());
+  // CHECK(vertex.hasIncomingLidarEdges());
   return vertex;
 }
 const vi_map::LidarVertex* VIMap::getLidarVertexPtr(
@@ -166,7 +168,8 @@ const vi_map::LidarVertex* VIMap::getLidarVertexPtr(
   return vertex_ptr;
 }
 
-int64_t VIMap::getVertexTimestampNanoseconds(const pose_graph::VertexId& id) const {
+int64_t VIMap::getVertexTimestampNanoseconds(
+    const pose_graph::VertexId& id) const {
   CHECK(hasAnyVertex(id));
   if (hasLidarVertex(id)) {
     // get the timestamp from the outgoing edge first lidar timestamp
@@ -174,9 +177,11 @@ int64_t VIMap::getVertexTimestampNanoseconds(const pose_graph::VertexId& id) con
     pose_graph::EdgeIdSet outgoing_edges;
     vertex.getOutgoingLidarEdges(&outgoing_edges);
     CHECK(!outgoing_edges.empty());
-    const vi_map::ViwlsEdge& edge = getAnyEdgeAs<vi_map::ViwlsEdge>(*outgoing_edges.begin());
+    const vi_map::ViwlsEdge& edge =
+        getAnyEdgeAs<vi_map::ViwlsEdge>(*outgoing_edges.begin());
     // extract imu timestamps
-    Eigen::Matrix<int64_t, 1, Eigen::Dynamic> imu_timestamps = edge.getImuTimestamps();
+    Eigen::Matrix<int64_t, 1, Eigen::Dynamic> imu_timestamps =
+        edge.getImuTimestamps();
     return imu_timestamps[0];
   } else {
     return getVertex(id).getMinTimestampNanoseconds();
@@ -294,20 +299,18 @@ template <typename EdgeType>
 const EdgeType& VIMap::getAnyEdgeAs(const pose_graph::EdgeId& id) const {
   if (lidar_posegraph.edgeExists(id)) {
     return lidar_posegraph.getEdgePtr(id)->getAs<const EdgeType>();
-  }
-  else {
+  } else {
     return posegraph.getEdgePtr(id)->getAs<const EdgeType>();
   }
 }
 template <typename EdgeType>
 EdgeType* VIMap::getAnyEdgePtrAs(const pose_graph::EdgeId& id) {
   if (lidar_posegraph.edgeExists(id)) {
-    EdgeType* edge_ptr =
-        dynamic_cast<EdgeType*>(lidar_posegraph.getEdgePtrMutable(id));  // NOLINT
+    EdgeType* edge_ptr = dynamic_cast<EdgeType*>(
+        lidar_posegraph.getEdgePtrMutable(id));  // NOLINT
     CHECK(edge_ptr != nullptr);
     return edge_ptr;
-  }
-  else {
+  } else {
     EdgeType* edge_ptr =
         dynamic_cast<EdgeType*>(posegraph.getEdgePtrMutable(id));  // NOLINT
     CHECK(edge_ptr != nullptr);
@@ -317,12 +320,11 @@ EdgeType* VIMap::getAnyEdgePtrAs(const pose_graph::EdgeId& id) {
 template <typename EdgeType>
 const EdgeType* VIMap::getAnyEdgePtrAs(const pose_graph::EdgeId& id) const {
   if (lidar_posegraph.edgeExists(id)) {
-    const EdgeType* edge_ptr =
-        dynamic_cast<const EdgeType*>(lidar_posegraph.getEdgePtr(id));  // NOLINT
+    const EdgeType* edge_ptr = dynamic_cast<const EdgeType*>(
+        lidar_posegraph.getEdgePtr(id));  // NOLINT
     CHECK(edge_ptr != nullptr);
     return edge_ptr;
-  }
-  else {
+  } else {
     const EdgeType* edge_ptr =
         dynamic_cast<const EdgeType*>(posegraph.getEdgePtr(id));  // NOLINT
     CHECK(edge_ptr != nullptr);
@@ -1030,6 +1032,11 @@ pose_graph::Edge::EdgeType VIMap::getEdgeType(
   return posegraph.getEdgePtr(edge_id)->getType();
 }
 
+pose_graph::Edge::EdgeType VIMap::getAnyEdgeType(
+    pose_graph::EdgeId edge_id) const {
+  return getAnyEdgePtrAs<pose_graph::Edge>(edge_id)->getType();
+}
+
 bool VIMap::getNextVertex(
     const pose_graph::VertexId& current_vertex_id,
     pose_graph::VertexId* next_vertex_id) const {
@@ -1059,25 +1066,31 @@ bool VIMap::getNextVertex(
   return edge_found;
 }
 
+bool VIMap::isLidarVertex(const pose_graph::VertexId& vertex_id) const {
+  if (hasLidarVertex(vertex_id)) {
+    return true;
+  } else if (hasVertex(vertex_id)) {
+    return false;
+  } else {
+    LOG(ERROR) << "Vertex " << vertex_id << " not found!";
+    return false;
+  }
+}
+
 bool VIMap::getNextVertexIncludingLidar(
-  const pose_graph::VertexId& current_vertex_id,
-  pose_graph::VertexId* next_vertex_id) const {
+    const pose_graph::VertexId& current_vertex_id,
+    pose_graph::VertexId* next_vertex_id) const {
   CHECK_NOTNULL(next_vertex_id);
-
   std::unordered_set<pose_graph::EdgeId> outgoing_edges;
-  
-  const vi_map::Vertex& vertex = getAnyVertex(current_vertex_id);
 
+  const vi_map::Vertex& vertex = getAnyVertex(current_vertex_id);
   if (vertex.hasOutgoingLidarEdges()) {
     vertex.getOutgoingLidarEdges(&outgoing_edges);
-  }
-  else {
+  } else {
     vertex.getOutgoingEdges(&outgoing_edges);
   }
-
   const pose_graph::Edge::EdgeType edge_type =
       getGraphTraversalEdgeType(vertex.getMissionId());
-  
   bool edge_found = false;
   for (const pose_graph::EdgeId& edge_id : outgoing_edges) {
     const pose_graph::Edge* edge = getAnyEdgePtrAs<pose_graph::Edge>(edge_id);
@@ -1429,8 +1442,7 @@ bool VIMap::getAllCloseSensorResources(
     const aslam::SensorId& sensor_id = (*sensor_ids)[idx];
     const int64_t timestamp_ns = (*closest_timestamps_ns)[idx];
     DataType& resource = (*resources)[idx];
-    CHECK(getSensorResource(
-        mission, type, sensor_id, timestamp_ns, &resource));
+    CHECK(getSensorResource(mission, type, sensor_id, timestamp_ns, &resource));
   }
   return true;
 }

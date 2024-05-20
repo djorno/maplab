@@ -99,12 +99,10 @@ class Vertex : public pose_graph::Vertex {
   // Vertex for LiDAR-Intertial mapping.
   Vertex(
       const pose_graph::VertexId& vertex_id,
-      const Eigen::Matrix<double, 6, 1>& imu_ba_bw,
-      const Eigen::Vector3d& v_M,
-      const vi_map::MissionId& mission_id,
-      const aslam::Transformation& T_M_I
+      const Eigen::Matrix<double, 6, 1>& imu_ba_bw, const Eigen::Vector3d& v_M,
+      const vi_map::MissionId& mission_id, const aslam::Transformation& T_M_I
       //, const aslam::NCamera::Ptr cameras
-      );
+  );
 
   // Create a vertex with VisualNFrame based on the camera model provided. Does
   // not include any measurements.
@@ -155,6 +153,8 @@ class Vertex : public pose_graph::Vertex {
   virtual void getIncomingEdges(pose_graph::EdgeIdSet* edges) const;
   virtual void getOutgoingLidarEdges(pose_graph::EdgeIdSet* edges) const;
   virtual void getIncomingLidarEdges(pose_graph::EdgeIdSet* edges) const;
+  virtual void getAnyOutgoingEdges(pose_graph::EdgeIdSet* edges) const;
+  virtual void getAnyIncomingEdges(pose_graph::EdgeIdSet* edges) const;
   virtual void getAllEdges(pose_graph::EdgeIdSet* edges) const;
   virtual void getAllLidarEdges(pose_graph::EdgeIdSet* edges) const;
   virtual void getAllEdgesIncludingLidar(pose_graph::EdgeIdSet* edges) const;

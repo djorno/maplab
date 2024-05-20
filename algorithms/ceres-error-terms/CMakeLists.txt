@@ -17,7 +17,8 @@ cs_add_library(${PROJECT_NAME}
   src/parameterization/quaternion-param-jpl.cc
   src/pose-prior-error-term.cc
   src/position-error-term.cc
-  src/problem-information.cc)
+  src/problem-information.cc
+  src/balm-voxhess.cc)
 
 target_link_libraries(${PROJECT_NAME} pthread)
 

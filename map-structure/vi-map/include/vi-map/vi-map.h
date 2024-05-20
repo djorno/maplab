@@ -13,8 +13,8 @@
 #include <maplab-common/map-traits.h>
 #include <memory>
 #include <mutex>
-#include <posegraph/pose-graph.h>
 #include <posegraph/lidar-pose-graph.h>
+#include <posegraph/pose-graph.h>
 #include <posegraph/unique-id.h>
 #include <queue>
 #include <random>
@@ -35,15 +35,16 @@
 #include "vi-map/cklam-edge.h"
 #include "vi-map/landmark-index.h"
 #include "vi-map/landmark.h"
+#include "vi-map/lidar-vertex.h"
 #include "vi-map/loopclosure-edge.h"
 #include "vi-map/mission-baseframe.h"
 #include "vi-map/mission.h"
+#include "vi-map/point-cluster.h"
 #include "vi-map/pose-graph.h"
 #include "vi-map/sensor-manager.h"
 #include "vi-map/transformation-edge.h"
 #include "vi-map/unique-id.h"
 #include "vi-map/vertex.h"
-#include "vi-map/lidar-vertex.h"
 #include "vi-map/vi_map.pb.h"
 #include "vi-map/viwls-edge.h"
 
@@ -152,15 +153,16 @@ class VIMap : public backend::ResourceMap,
   inline const vi_map::Vertex* getVertexPtr(
       const pose_graph::VertexId& id) const;
   inline vi_map::Vertex& getAnyVertex(const pose_graph::VertexId& id);
-  inline const vi_map::Vertex& getAnyVertex(const pose_graph::VertexId& id) const;
+  inline const vi_map::Vertex& getAnyVertex(
+      const pose_graph::VertexId& id) const;
   inline vi_map::LidarVertex& getLidarVertex(const pose_graph::VertexId& id);
   inline const vi_map::LidarVertex& getLidarVertex(
       const pose_graph::VertexId& id) const;
-  inline vi_map::LidarVertex* getLidarVertexPtr(
-      const pose_graph::VertexId& id);
-    inline const vi_map::LidarVertex* getLidarVertexPtr(
+  inline vi_map::LidarVertex* getLidarVertexPtr(const pose_graph::VertexId& id);
+  inline const vi_map::LidarVertex* getLidarVertexPtr(
       const pose_graph::VertexId& id) const;
-  inline int64_t getVertexTimestampNanoseconds(const pose_graph::VertexId& id) const;
+  inline int64_t getVertexTimestampNanoseconds(
+      const pose_graph::VertexId& id) const;
 
   inline size_t numEdges() const;
   inline bool hasEdge(const pose_graph::EdgeId& id) const;
@@ -420,10 +422,12 @@ class VIMap : public backend::ResourceMap,
       const pose_graph::VertexId& current_vertex_id,
       pose_graph::VertexId* next_vertex_id) const;
 
+  inline bool isLidarVertex(const pose_graph::VertexId& vertex_id) const;
+
   inline bool getNextVertexIncludingLidar(
-        const pose_graph::VertexId& current_vertex_id,
-        pose_graph::VertexId* next_vertex_id) const;
-  
+      const pose_graph::VertexId& current_vertex_id,
+      pose_graph::VertexId* next_vertex_id) const;
+
   /// Provide the previous vertex id by following the graph-traversal edge type
   /// of the graph.
   inline bool getPreviousVertex(
@@ -458,7 +462,7 @@ class VIMap : public backend::ResourceMap,
       const vi_map::MissionId& mission_id,
       const pose_graph::VertexId& starting_verte_id,
       pose_graph::VertexIdList* vertices) const;
-  
+
   void getAllVertexIdsIncLidarInMissionAlongGraph(
       const vi_map::MissionId& mission_id,
       pose_graph::VertexIdList* vertices) const;
@@ -474,6 +478,9 @@ class VIMap : public backend::ResourceMap,
   void getVertexIdsByMission(
       vi_map::MissionVertexIdList* mission_to_vertex_ids_map) const;
   void getAllVertexIdsInMission(
+      const vi_map::MissionId& mission_id,
+      pose_graph::VertexIdList* vertices) const;
+  void getAllVertexIdsIncLidarInMission(
       const vi_map::MissionId& mission_id,
       pose_graph::VertexIdList* vertices) const;
   void getAllEdgeIdsInMissionAlongGraph(
@@ -512,6 +519,8 @@ class VIMap : public backend::ResourceMap,
   inline void addLidarEdge(vi_map::Edge::UniquePtr edge_ptr);
   inline void addEdge(vi_map::Edge::UniquePtr edge_ptr);
   inline pose_graph::Edge::EdgeType getEdgeType(
+      pose_graph::EdgeId edge_id) const;
+  inline pose_graph::Edge::EdgeType getAnyEdgeType(
       pose_graph::EdgeId edge_id) const;
 
   inline void removeVertex(pose_graph::VertexId vertex_id);

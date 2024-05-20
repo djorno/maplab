@@ -26,55 +26,9 @@
 #include "vi-map/unique-id.h"
 #include "vi-map/vi_map.pb.h"
 #include "vi-map/vertex.h"
+#include "vi-map/point-cluster.h"
 
 namespace vi_map {
-class PointCluster {
- public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-  Eigen::Matrix3d P;
-  Eigen::Vector3d v;
-  size_t N;
-
-  PointCluster() {
-    P.setZero();
-    v.setZero();
-    N = 0;
-  }
-
-  void push(const Eigen::Vector3d& vec) {
-    N++;
-    P += vec * vec.transpose();
-    v += vec;
-  }
-
-  Eigen::Matrix3d cov() {
-    Eigen::Vector3d center = v / N;
-    return P / N - center * center.transpose();
-  }
-
-  PointCluster& operator+=(const PointCluster& sigv) {
-    this->P += sigv.P;
-    this->v += sigv.v;
-    this->N += sigv.N;
-
-    return *this;
-  }
-
-  PointCluster transform(const aslam::Transformation& T) const {
-    const Eigen::Matrix3d R = T.getRotationMatrix();
-    const Eigen::Vector3d p = T.getPosition();
-    const Eigen::Matrix3d rp = R * v * p.transpose();
-
-    PointCluster sigv;
-    sigv.N = N;
-    sigv.v = R * v + N * p;
-    sigv.P =
-        R * P * R.transpose() + rp + rp.transpose() + N * p * p.transpose();
-    return sigv;
-  }
-};
-
 class LidarVertex: public Vertex {
 
 public:

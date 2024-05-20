@@ -68,46 +68,62 @@ void ImuIntegratorRK4::integrate(
       &state_der4);
 
   // Calculate final state using RK4.
-  *next_state = current_state +
-                delta_time_seconds * (state_der1 + ScalarType(2) * state_der2 +
-                                      ScalarType(2) * state_der3 + state_der4) /
-                    ScalarType(6);
+  *next_state = current_state + delta_time_seconds *
+                                    (state_der1 + ScalarType(2) * state_der2 +
+                                     ScalarType(2) * state_der3 + state_der4) /
+                                    ScalarType(6);
 
-    if (delta_time_seconds < 1e-8) {
-        CHECK(next_state->isApprox(current_state)) << "delta_time_seconds: " << delta_time_seconds << std::endl
-            << "current_state: " << current_state.transpose() << std::endl
-            << "next_state: " << next_state->transpose() << std::endl
-            << "state_der1: " << state_der1.transpose() << std::endl
-            << "state_der2: " << state_der2.transpose() << std::endl
-            << "state_der3: " << state_der3.transpose() << std::endl
-            << "state_der4: " << state_der4.transpose() << std::endl
-            << "imu_readings_k1: " << imu_readings_k1.transpose() << std::endl
-            << "imu_readings_k23: " << imu_readings_k23.transpose() << std::endl
-            << "imu_readings_k4: " << imu_readings_k4.transpose() << std::endl;
-    }
-    // check that the state_der is zero for the gyro and acc bias
-    const Eigen::Vector3d d11 = state_der1.template block<3, 1>(kStateGyroBiasOffset, 0);
-    const Eigen::Vector3d d12 = state_der1.template block<3, 1>(kStateAccelBiasOffset, 0);
-    const Eigen::Vector3d d21 = state_der2.template block<3, 1>(kStateGyroBiasOffset, 0);
-    const Eigen::Vector3d d22 = state_der2.template block<3, 1>(kStateAccelBiasOffset, 0);
-    const Eigen::Vector3d d31 = state_der3.template block<3, 1>(kStateGyroBiasOffset, 0);
-    const Eigen::Vector3d d32 = state_der3.template block<3, 1>(kStateAccelBiasOffset, 0);
-    const Eigen::Vector3d d41 = state_der4.template block<3, 1>(kStateGyroBiasOffset, 0);
-    const Eigen::Vector3d d42 = state_der4.template block<3, 1>(kStateAccelBiasOffset, 0);
+  if (delta_time_seconds < 1e-8) {
+    CHECK(next_state->isApprox(current_state))
+        << "delta_time_seconds: " << delta_time_seconds << std::endl
+        << "current_state: " << current_state.transpose() << std::endl
+        << "next_state: " << next_state->transpose() << std::endl
+        << "state_der1: " << state_der1.transpose() << std::endl
+        << "state_der2: " << state_der2.transpose() << std::endl
+        << "state_der3: " << state_der3.transpose() << std::endl
+        << "state_der4: " << state_der4.transpose() << std::endl
+        << "imu_readings_k1: " << imu_readings_k1.transpose() << std::endl
+        << "imu_readings_k23: " << imu_readings_k23.transpose() << std::endl
+        << "imu_readings_k4: " << imu_readings_k4.transpose() << std::endl;
+  }
+  // check that the state_der is zero for the gyro and acc bias
+  const Eigen::Vector3d d11 =
+      state_der1.template block<3, 1>(kStateGyroBiasOffset, 0);
+  const Eigen::Vector3d d12 =
+      state_der1.template block<3, 1>(kStateAccelBiasOffset, 0);
+  const Eigen::Vector3d d21 =
+      state_der2.template block<3, 1>(kStateGyroBiasOffset, 0);
+  const Eigen::Vector3d d22 =
+      state_der2.template block<3, 1>(kStateAccelBiasOffset, 0);
+  const Eigen::Vector3d d31 =
+      state_der3.template block<3, 1>(kStateGyroBiasOffset, 0);
+  const Eigen::Vector3d d32 =
+      state_der3.template block<3, 1>(kStateAccelBiasOffset, 0);
+  const Eigen::Vector3d d41 =
+      state_der4.template block<3, 1>(kStateGyroBiasOffset, 0);
+  const Eigen::Vector3d d42 =
+      state_der4.template block<3, 1>(kStateAccelBiasOffset, 0);
 
-    
-    CHECK(d11.isZero(0.0001)) << "state_der1: " << state_der1.transpose() << std::endl;
-    CHECK(d12.isZero(0.0001)) << "state_der1: " << state_der1.transpose() << std::endl;
+  CHECK(d11.isZero(0.0001))
+      << "state_der1: " << state_der1.transpose() << std::endl;
+  CHECK(d12.isZero(0.0001))
+      << "state_der1: " << state_der1.transpose() << std::endl;
 
-    CHECK(d21.isZero(0.0001)) << "state_der2: " << state_der2.transpose() << std::endl;
-    CHECK(d22.isZero(0.0001)) << "state_der2: " << state_der2.transpose() << std::endl;
+  CHECK(d21.isZero(0.0001))
+      << "state_der2: " << state_der2.transpose() << std::endl;
+  CHECK(d22.isZero(0.0001))
+      << "state_der2: " << state_der2.transpose() << std::endl;
 
-    CHECK(d31.isZero(0.0001)) << "state_der3: " << state_der3.transpose() << std::endl;
-    CHECK(d32.isZero(0.0001)) << "state_der3: " << state_der3.transpose() << std::endl;
+  CHECK(d31.isZero(0.0001))
+      << "state_der3: " << state_der3.transpose() << std::endl;
+  CHECK(d32.isZero(0.0001))
+      << "state_der3: " << state_der3.transpose() << std::endl;
 
-    CHECK(d41.isZero(0.0001)) << "state_der4: " << state_der4.transpose() << std::endl;
-    CHECK(d42.isZero(0.0001)) << "state_der4: " << state_der4.transpose() << std::endl;
-    
+  CHECK(d41.isZero(0.0001))
+      << "state_der4: " << state_der4.transpose() << std::endl;
+  CHECK(d42.isZero(0.0001))
+      << "state_der4: " << state_der4.transpose() << std::endl;
+
   if (calculate_phi_cov) {
     next_phi->setZero();
     next_cov->setZero();
@@ -130,8 +146,8 @@ void ImuIntegratorRK4::integrate(
     Eigen::Matrix<ScalarType, kErrorStateSize, kErrorStateSize> current_cov =
         Eigen::Matrix<ScalarType, kErrorStateSize, kErrorStateSize>::Zero();
     Eigen::Matrix<ScalarType, kErrorStateSize, kErrorStateSize>
-        current_transition = Eigen::Matrix<ScalarType, kErrorStateSize,
-                                           kErrorStateSize>::Identity();
+        current_transition = Eigen::Matrix<
+            ScalarType, kErrorStateSize, kErrorStateSize>::Identity();
 
     getCovarianceTransitionDerivativesRungeKutta(
         imu_readings_k1, current_state, current_cov, current_transition,
@@ -171,11 +187,11 @@ void ImuIntegratorRK4::integrate(
         imu_readings_k4, current_state_intermediate, current_cov_intermediate,
         current_transition_intermediate, &cov_der4, &transition_der4);
 
-    *next_cov = current_cov +
-                delta_time_seconds *
-                    (cov_der1 + static_cast<ScalarType>(2) * cov_der2 +
-                     static_cast<ScalarType>(2) * cov_der3 + cov_der4) /
-                    static_cast<ScalarType>(6);
+    *next_cov =
+        current_cov + delta_time_seconds *
+                          (cov_der1 + static_cast<ScalarType>(2) * cov_der2 +
+                           static_cast<ScalarType>(2) * cov_der3 + cov_der4) /
+                          static_cast<ScalarType>(6);
     *next_phi = current_transition;
 
     next_phi->template block<3, 15>(0, 0) +=
@@ -328,6 +344,9 @@ void ImuIntegratorRK4::getCovarianceTransitionDerivativesRungeKutta(
   cov_derivative->diagonal().template segment<3>(9) +=
       Eigen::Matrix<ScalarType, 3, 1>::Constant(
           static_cast<ScalarType>(acc_bias_sigma_squared_));
+  cov_derivative->diagonal().template segment<3>(12) +=
+      Eigen::Matrix<ScalarType, 3, 1>::Constant(
+          static_cast<ScalarType>(acc_noise_sigma_squared_));
 }
 
 template <typename ScalarType>

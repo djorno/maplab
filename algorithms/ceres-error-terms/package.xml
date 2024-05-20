@@ -18,4 +18,14 @@
   <depend>imu_integrator_rk4</depend>
   <depend>maplab_common</depend>
   <depend>minkindr</depend>
+  <depend>console_common</depend>
+  <depend>dense_reconstruction_common</depend>
+  <depend>depth_integration</depend>
+  <depend>map_manager</depend>
+  <depend>resources_common</depend>
+  <depend>stereo_dense_reconstruction</depend>
+  <depend>vi_map</depend>
+  <depend>voxblox_ros</depend>
+  <depend>voxblox</depend>
+  <depend>dense_reconstruction_plugin</depend>
 </package>

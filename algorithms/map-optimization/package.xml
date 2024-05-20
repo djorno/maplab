@@ -22,4 +22,11 @@
   <depend>vi_map</depend>
   <depend>vi_map_helpers</depend>
   <depend>visualization</depend>
+  <depend>depth_integration</depend>
+  <depend>dense_reconstruction_common</depend>
+  <depend>stereo_dense_reconstruction</depend>
+  <depend>voxblox</depend>
+  <depend>voxblox_ros</depend>
+  <depend>console_common</depend>
+  <depend>dense_reconstruction_plugin</depend>
 </package>

@@ -145,19 +145,16 @@ Vertex::Vertex(
 
 // Vertex for LiDAR-Intertial mapping.
 Vertex::Vertex(
-      const pose_graph::VertexId& vertex_id,
-      const Eigen::Matrix<double, 6, 1>& imu_ba_bw,
-      const Eigen::Vector3d& v_M,
-      const vi_map::MissionId& mission_id,
-      const aslam::Transformation& T_M_I
-      )//, const aslam::NCamera::Ptr cameras)
-    : id_(vertex_id), mission_id_(mission_id){
+    const pose_graph::VertexId& vertex_id,
+    const Eigen::Matrix<double, 6, 1>& imu_ba_bw, const Eigen::Vector3d& v_M,
+    const vi_map::MissionId& mission_id,
+    const aslam::Transformation& T_M_I)  //, const aslam::NCamera::Ptr cameras)
+    : id_(vertex_id), mission_id_(mission_id) {
   // CHECK(n_frame_ != nullptr) << "VisualNFrame is nullptr.";
   accel_bias_ = imu_ba_bw.head<3>();
   gyro_bias_ = imu_ba_bw.tail<3>();
   v_M_ = v_M;
   T_M_I_ = T_M_I;
-  
 }
 
 Vertex::Vertex(const aslam::NCamera::Ptr cameras) {
@@ -370,6 +367,24 @@ void Vertex::getOutgoingLidarEdges(pose_graph::EdgeIdSet* edges) const {
 void Vertex::getIncomingLidarEdges(pose_graph::EdgeIdSet* edges) const {
   CHECK_NOTNULL(edges);
   *edges = incoming_lidar_edges_;
+}
+
+void Vertex::getAnyOutgoingEdges(pose_graph::EdgeIdSet* edges) const {
+  CHECK_NOTNULL(edges);
+  if (outgoing_edges_.size() > 0) {
+    *edges = outgoing_edges_;
+  } else {
+    *edges = outgoing_lidar_edges_;
+  }
+}
+
+void Vertex::getAnyIncomingEdges(pose_graph::EdgeIdSet* edges) const {
+  CHECK_NOTNULL(edges);
+  if (incoming_edges_.size() > 0) {
+    *edges = incoming_edges_;
+  } else {
+    *edges = incoming_lidar_edges_;
+  }
 }
 
 void Vertex::getAllEdges(pose_graph::EdgeIdSet* edges) const {
@@ -969,8 +984,7 @@ void Vertex::getAllObservedLandmarkIdsOfType(
   const aslam::VisualNFrame& n_frame = getVisualNFrame();
   for (size_t frame_idx = 0; frame_idx < n_frame.getNumFrames(); frame_idx++) {
     vi_map::LandmarkIdList landmark_ids;
-    getFrameObservedLandmarkIdsOfType(
-        frame_idx, &landmark_ids, feature_type);
+    getFrameObservedLandmarkIdsOfType(frame_idx, &landmark_ids, feature_type);
     landmark_ids_all->emplace_back(landmark_ids);
   }
 }

@@ -172,6 +172,7 @@ VisualizationPlugin::VisualizationPlugin(common::Console* console)
 void VisualizationPlugin::plotVIStatesOfMission(
     const vi_map::VIMap& map, const vi_map::MissionId& mission_id) const {
   pose_graph::VertexIdList vertices;
+  // map.getAllVertexIdsIncLidarInMissionAlongGraph(mission_id, &vertices);
   map.getAllVertexIdsInMissionAlongGraph(mission_id, &vertices);
 
   Eigen::VectorXd timestamps_s(vertices.size());
@@ -182,6 +183,8 @@ void VisualizationPlugin::plotVIStatesOfMission(
   size_t idx = 0u;
   for (const pose_graph::VertexId& vertex_id : vertices) {
     const vi_map::Vertex& vertex = map.getVertex(vertex_id);
+    // timestamps_s(idx, 0) =
+    //     aslam::time::to_seconds(map.getVertexTimestampNanoseconds(vertex_id));
     timestamps_s(idx, 0) =
         aslam::time::to_seconds(vertex.getMinTimestampNanoseconds());
     p_M_I.col(idx) = vertex.get_p_M_I();
@@ -190,8 +193,20 @@ void VisualizationPlugin::plotVIStatesOfMission(
     gyro_bias.col(idx) = vertex.getGyroBias();
     ++idx;
   }
+  // check that the matrices are not null
+  CHECK(!((timestamps_s.array().isNaN()).any()));
+  CHECK(!((p_M_I.array().isNaN()).any()));
+  CHECK(!((v_M.array().isNaN()).any()));
+  CHECK(!((accel_bias.array().isNaN()).any()));
+  CHECK(!((gyro_bias.array().isNaN()).any()));
   timestamps_s.array() = timestamps_s.array() - timestamps_s(0, 0);
+  // check dimensions
+  CHECK_EQ(timestamps_s.size(), p_M_I.cols());
+  CHECK_EQ(timestamps_s.size(), v_M.cols());
+  CHECK_EQ(timestamps_s.size(), accel_bias.cols());
+  CHECK_EQ(timestamps_s.size(), gyro_bias.cols());
 
+  LOG(INFO) << "GOT HERE! " << p_M_I.rows() << " " << p_M_I.cols();
   plotty::subplot(4, 1, 1);
   plotty::plot(timestamps_s, p_M_I.row(0));
   plotty::plot(timestamps_s, p_M_I.row(1));
