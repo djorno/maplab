@@ -457,4 +457,35 @@ VoxHess::VoxHess(vi_map::VIMap* map) {
   }
 }
 
+VoxHessAtom::VoxHessAtom(VoxHess& voxhess, size_t& feature_index)
+    : index(*voxhess.indices[feature_index]),
+      sig(*voxhess.sig_vecs[feature_index]),
+      sig_origin(*voxhess.plvec_voxels[feature_index]),
+      coeff(voxhess.coeffs[feature_index]) {}
+
+double VoxHessAtom::evaluate_residual(
+    const std::vector<double*>& xs, PointCluster& sig_mutable,
+    Eigen::Vector3d& lmbd, Eigen::Matrix3d& U,
+    const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M) {
+  sig_mutable = sig;
+  for (size_t sig_i = 0; sig_i < sig_origin.size(); ++sig_i) {
+    const size_t i = index[sig_i];
+    Eigen::Map<const Eigen::Matrix<double, 7, 1>> xs_i(xs[i]);
+    // from active to passive from JPL to Hamilton --> no inversion needed
+    Eigen::Quaterniond q_MI(xs_i.block<4, 1>(0, 0));
+    Eigen::Vector3d p_MI = xs_i.block<3, 1>(4, 0);
+    aslam::Transformation T_M_I(q_MI, p_MI);
+    aslam::Transformation T_G_S = T_G_M * T_M_I * T_I_S;
+    // BALM operates in the sensor frame, not inertial frame.
+    sig_mutable += sig_origin[sig_i].transform(T_G_S);
+  }
+  Eigen::Vector3d vBar = sig_mutable.v / sig_mutable.N;
+  Eigen::Matrix3d cmt = sig_mutable.P / sig_mutable.N - vBar * vBar.transpose();
+
+  Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(cmt);
+  lmbd = saes.eigenvalues();
+  U = saes.eigenvectors();
+
+  return coeff * lmbd[0];
+}
 }  // namespace ceres_error_terms

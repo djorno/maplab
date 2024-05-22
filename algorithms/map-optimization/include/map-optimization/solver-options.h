@@ -63,8 +63,8 @@ inline ceres::Solver::Options initSolverOptionsFromFlags() {
   } else if (FLAGS_ba_linear_solver_type == "ITERATIVE_SCHUR") {
     options.linear_solver_type = ceres::ITERATIVE_SCHUR;
   } else {
-    LOG(FATAL) << "Unkown type for --ba_linear_solver_type: "
-               << "'" << FLAGS_ba_linear_solver_type << "'!";
+    LOG(FATAL) << "Unkown type for --ba_linear_solver_type: " << "'"
+               << FLAGS_ba_linear_solver_type << "'!";
   }
 
   // Do not copy the data back at every iteration. Remember to turn it on if
@@ -87,6 +87,13 @@ inline void addCallbacksToSolverOptions(
     options->update_state_every_iteration = true;
   }
 }
+
+inline void addEvaluationCallbacksToSolverOptions(
+    const std::shared_ptr<ceres::EvaluationCallback>& callbacks,
+    ceres::Solver::Options* options) {
+  CHECK_NOTNULL(options);
+
+  options->evaluation_callback = callbacks.get();
 
 }  // namespace map_optimization
 #endif  // MAP_OPTIMIZATION_SOLVER_OPTIONS_H_

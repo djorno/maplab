@@ -471,6 +471,10 @@ class VIMap : public backend::ResourceMap,
       const pose_graph::VertexId& starting_verte_id,
       pose_graph::VertexIdList* vertices) const;
 
+  void getAllLidarVertexIdsInMissionAlongGraph(
+      const vi_map::MissionId& mission_id,
+      pose_graph::VertexIdList* vertices) const;
+
   /// Get all the vertex ids in the order that they appear when traversing the
   /// pose-graphs of all missions (sorted by timestamp).
   void getAllVertexIdsAlongGraphsSortedByTimestamp(

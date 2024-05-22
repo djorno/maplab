@@ -160,6 +160,8 @@ ViProblemOptions ViProblemOptions::initFromGFlags() {
 OptimizationProblem* constructOptimizationProblem(
     const vi_map::MissionIdSet& mission_ids, const ViProblemOptions& options,
     vi_map::VIMap* map) {
+  /*,
+  std::shared_ptr<ceres::EvaluationCallback> evaluation_callback_ptr) {*/
   CHECK(map);
   CHECK(options.isValid());
   if (options.add_balm_constraints) {
@@ -172,6 +174,14 @@ OptimizationProblem* constructOptimizationProblem(
 
   size_t num_balm_constraints_added = 0u;
   if (options.add_balm_constraints) {
+    std::shared_ptr<ceres::EvaluationCallback> evaluation_callback_ptr;
+    num_balm_constraints_added =
+        addBALMTerms(voxhess, problem, evaluation_callback_ptr);
+    if (num_balm_constraints_added == 0u) {
+      LOG(WARNING)
+          << "WARNING: BALM constraints enabled, but none "
+          << "were found, adapting DoF settings of optimization problem...";
+    }
   }
 
   size_t num_visual_constraints_added = 0u;

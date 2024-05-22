@@ -246,7 +246,7 @@ void ViMappingTest::testWheelCalibrationThreeVertices() {
 
   map_optimization::OptimizationProblem::UniquePtr optimization_problem(
       map_optimization::constructOptimizationProblem(
-          mission_ids, options, map.get()));
+          mission_ids, options, map.get()));  //, nullptr));
 
   map_optimization::solve(options.solver_options, optimization_problem.get());
 
@@ -393,7 +393,7 @@ void ViMappingTest::testWheelCalibrationTwoVertices() {
 
   map_optimization::OptimizationProblem::UniquePtr optimization_problem(
       map_optimization::constructOptimizationProblem(
-          mission_ids, options, map.get()));
+          mission_ids, options, map.get()));  //, nullptr));
 
   map_optimization::solve(options.solver_options, optimization_problem.get());
 

@@ -2356,6 +2356,28 @@ void VIMap::getAllVertexIdsIncLidarInMissionAlongGraph(
   } while (getNextVertexIncludingLidar(current_vertex_id, &current_vertex_id));
 }
 
+void VIMap::getAllLidarVertexIdsInMissionAlongGraph(
+    const vi_map::MissionId& mission_id,
+    pose_graph::VertexIdList* vertices) const {
+  CHECK_NOTNULL(vertices)->clear();
+  CHECK(hasMission(mission_id));
+
+  pose_graph::VertexIdList std_vertex_list;
+  getAllVertexIdsInMissionAlongGraph(mission_id, &std_vertex_list);
+
+  pose_graph::VertexIdList inc_vertex_list;
+  getAllVertexIdsIncLidarInMissionAlongGraph(mission_id, &inc_vertex_list);
+
+  for (const pose_graph::VertexId& vertex_id : inc_vertex_list) {
+    if (std::find(std_vertex_list.begin(), std_vertex_list.end(), vertex_id) ==
+        std_vertex_list.end()) {
+      vertices->push_back(vertex_id);
+    }
+  }
+  LOG(INFO) << "Number of vertices in mission " << mission_id.hexString()
+            << ": " << vertices->size();
+}
+
 void VIMap::getAllVertexIdsAlongGraphsSortedByTimestamp(
     pose_graph::VertexIdList* vertices) const {
   CHECK_NOTNULL(vertices)->clear();

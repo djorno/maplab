@@ -495,28 +495,74 @@ int addInertialTermsForEdges(
 
   return num_residuals_added;
 }
-/*
-int addBALMTerms(const std::shared_ptr<ceres::LocalParametrization>&
-pose_parametrization, const pose_graph::VertexIdList& vertices,
-    OptimizationProblem* problem) {
 
-    CHECK_NOTNULL(problem);
-    vi_map::VIMap* map = CHECK_NOTNULL(problem->getMapMutable());
+int addBALMTerms(
+    const ceres_error_terms::VoxHess& voxhess, OptimizationProblem* problem,
+    std::shared_ptr<ceres::EvaluationCallback> evaluation_callback_ptr) {
+  CHECK_NOTNULL(problem);
+  CHECK_NOTNULL(evaluation_callback_ptr);
+  // check that the evaluation_callback_ptr is empty, otherwise indexing below
+  // does not work
 
-    const OptimizationProblem::LocalParameterizations& parameterizations =
-        problem->getLocalParameterizations();
+  vi_map::VIMap* map = CHECK_NOTNULL(problem->getMapMutable());
 
-    OptimizationStateBuffer* buffer =
-CHECK_NOTNULL(problem->getOptimizationStateBufferMutable());
+  const OptimizationProblem::LocalParameterizations& parameterizations =
+      problem->getLocalParameterizations();
 
-    size_t num_residuals_added = 0u;
+  OptimizationStateBuffer* buffer =
+      CHECK_NOTNULL(problem->getOptimizationStateBufferMutable());
 
-    const vi_map::MissionIdSet& missions_to_optimize = problem->getMissionIds();
-    for (const vi_map::MissionId& mission_id : missions_to_optimize) {
-        for ()
+  size_t num_residuals_added = 0u;
 
+  const size_t num_features = voxhess.plvec_voxels.size();
+
+  const vi_map::MissionIdSet& missions_to_optimize = problem->getMissionIds();
+  for (const vi_map::MissionId& mission_id : missions_to_optimize) {
+    pose_graph::VertexIdList vertices;
+    map->getAllLidarVertexIdsInMissionAlongGraph(mission_id, &vertices);
+    // construct xs, containing all the poses for the mission
+    std::vector<double*> xs;
+    for (pose_graph::VertexId vertex_id : vertices) {
+      double* vertex_q_IM__M_p_MI =
+          buffer->get_vertex_q_IM__M_p_MI_JPL(vertex_id);
+      xs.push_back(vertex_q_IM__M_p_MI);
     }
-*/
+    aslam::Transformation& T_I_S = map->getSensorManager().getSensor_T_B_S(
+        map->getMission(mission_id).getLidarId());
+    const aslam::Transformation& T_G_M =
+        map->getMissionBaseFrameForMission(mission_id).get_T_G_M();
+
+    // construct the evaluation callback for the current feature
+    evaluation_callback_ptr =
+        new ceres_error_terms::EvaluationCallback(voxhess, T_I_S, T_G_M);
+    // loop over all features
+    for (size_t feat_ind = 0; feat_ind < num_features; ++feat_ind) {
+      // construct VoxHessAtom for the current feature
+      ceres_error_terms::VoxHessAtom voxhess_atom(voxhess, feat_ind);
+      // loop over all elements in sig_origin.size()
+      for (size_t sig_i = 0; sig_i < voxhess_atom.sig_vecs[feat_ind].size();
+           ++sig_i) {
+        // construct the residual block for the current feature
+        std::shared_ptr<ceres_error_terms::BALMErrorTerm> balm_term_cost(
+            new ceres_error_terms::BALMErrorTerm(
+                evaluation_callback_ptr->back(), sig_i));
+        // add the residual block to the problem
+        double* vertex_q_IM__M_p_MI_JPL = xs[voxhess_atom.index(sig_i)];
+        problem->getProblemInformationMutable()->addResidualBlock(
+            ceres_error_terms::ResidualType::kBALM, balm_term_cost,
+            new ceres::HuberLoss(1.0), {vertex_q_IM__M_p_MI_JPL});
+        ++num_residuals_added;
+
+        problem->getProblemBookkeepingMutable()->keyframes_in_problem.emplace(
+            vertices[voxhess_atom.index(sig_i)]);
+
+        problem->getProblemInformationMutable()->setParameterization(
+            vertex_q_IM__M_p_MI_JPL, parameterizations.pose_parameterization);
+      }
+    }
+  }
+}
+
 int addWheelOdometryTerms(
     const bool fix_extrinsics, OptimizationProblem* problem) {
   CHECK_NOTNULL(problem);
@@ -586,8 +632,8 @@ int addRelativePoseTermsForEdges(
       edge_type == pose_graph::Edge::EdgeType::kOdometry) {
     residual_type = ceres_error_terms::ResidualType::kOdometry;
   } else {
-    LOG(FATAL)
-        << "The given edge_type is not of a supported TransformationEdge type.";
+    LOG(FATAL) << "The given edge_type is not of a supported "
+                  "TransformationEdge type.";
   }
   VLOG(1) << "Adding " << pose_graph::Edge::edgeTypeToString(edge_type)
           << " term residual blocks...";

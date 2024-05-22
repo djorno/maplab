@@ -111,6 +111,9 @@ struct ViProblemOptions {
 OptimizationProblem* constructOptimizationProblem(
     const vi_map::MissionIdSet& mission_ids, const ViProblemOptions& options,
     vi_map::VIMap* map);
+/*
+,
+std::shared_ptr<ceres::EvaluationCallback> evaluation_callback);*/
 
 }  // namespace map_optimization
 #endif  // MAP_OPTIMIZATION_VI_OPTIMIZATION_BUILDER_H_
