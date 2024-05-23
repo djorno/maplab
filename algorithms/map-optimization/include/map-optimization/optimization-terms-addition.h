@@ -1,6 +1,7 @@
 #ifndef MAP_OPTIMIZATION_OPTIMIZATION_TERMS_ADDITION_H_
 #define MAP_OPTIMIZATION_OPTIMIZATION_TERMS_ADDITION_H_
 
+#include <ceres-error-terms/balm-voxhess.h>
 #include "map-optimization/optimization-problem.h"
 
 #include <memory>
@@ -48,6 +49,11 @@ int addInertialTermsForEdges(
     const vi_map::ImuSigmas& imu_sigmas,
     const std::shared_ptr<ceres::LocalParameterization>& pose_parameterization,
     const pose_graph::EdgeIdList& edges, OptimizationProblem* problem);
+
+int addBALMTerms(
+    const ceres_error_terms::VoxHess& voxhess, OptimizationProblem* problem,
+    std::vector<std::shared_ptr<ceres::EvaluationCallback>>*
+        evaluation_callback_ptr);
 
 int addWheelOdometryTerms(
     const bool fix_extrinsics, OptimizationProblem* problem);

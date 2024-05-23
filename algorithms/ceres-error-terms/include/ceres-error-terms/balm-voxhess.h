@@ -73,6 +73,8 @@ class PointCluster {
   PointCluster transform(const aslam::Transformation& T) const;
 };
 
+Eigen::Matrix3d hat(const Eigen::Vector3d& v);
+
 class VoxHess {
  public:
   std::vector<const std::vector<size_t>*> indices;
@@ -81,6 +83,8 @@ class VoxHess {
   std::vector<double> coeffs;
 
   VoxHess(vi_map::VIMap* map);
+
+  VoxHess();
 
   void push_voxel(
       const std::vector<size_t>* index,

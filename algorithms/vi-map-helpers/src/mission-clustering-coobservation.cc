@@ -138,6 +138,19 @@ bool hasInertialConstraintsInAllMissionsInCluster(
   return true;
 }
 
+bool hasBALMConstraintsInAllMissionsInCluster(
+    const vi_map::VIMap& vi_map, const vi_map::MissionIdSet& mission_ids) {
+  CHECK(!mission_ids.empty());
+  for (const vi_map::MissionId& mission_id : mission_ids) {
+    pose_graph::VertexIdList vertices;
+    vi_map.getAllLidarVertexIdsInMissionAlongGraph(mission_id, &vertices);
+    if (vertices.empty()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool hasVisualConstraintsInAllMissionsInCluster(
     const vi_map::VIMap& vi_map, const vi_map::MissionIdSet& mission_ids) {
   CHECK(!mission_ids.empty());

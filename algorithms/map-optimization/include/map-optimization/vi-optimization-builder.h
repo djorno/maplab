@@ -1,6 +1,7 @@
 #ifndef MAP_OPTIMIZATION_VI_OPTIMIZATION_BUILDER_H_
 #define MAP_OPTIMIZATION_VI_OPTIMIZATION_BUILDER_H_
 
+#include <ceres-error-terms/balm-voxhess.h>
 #include <maplab-common/gravity-provider.h>
 #include <vi-map-helpers/vi-map-queries.h>
 #include <vi-map/vi-map.h>
@@ -107,10 +108,12 @@ struct ViProblemOptions {
   ViProblemOptions() = default;
 };
 
-// Caller takes ownership.
+// Caller takes ownership. Does not take ownership of the evaluation_callback.
 OptimizationProblem* constructOptimizationProblem(
     const vi_map::MissionIdSet& mission_ids, const ViProblemOptions& options,
-    vi_map::VIMap* map);
+    vi_map::VIMap* map,
+    std::vector<std::shared_ptr<ceres::EvaluationCallback>>*
+        evaluation_callback = nullptr);
 
 }  // namespace map_optimization
 #endif  // MAP_OPTIMIZATION_VI_OPTIMIZATION_BUILDER_H_

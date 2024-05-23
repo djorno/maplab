@@ -13,6 +13,7 @@ add_definitions(-fPIC -shared)
 cs_add_library(${PROJECT_NAME}
   src/dense-reconstruction-plugin.cc
   src/voxblox-params.cc
+  src/li-map.cc
 )
 create_console_plugin(${PROJECT_NAME})
 

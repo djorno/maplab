@@ -1,6 +1,6 @@
 #include "dense-reconstruction/dense-reconstruction-plugin.h"
 #include "dense-reconstruction/balm/bavoxel.h"
-#include "dense-reconstruction/balm/li-map.h"
+// #include "dense-reconstruction/balm/li-map.h"
 #include "dense-reconstruction/voxblox-params.h"
 
 #include <chrono>
@@ -857,7 +857,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
         vi_map::VIMap& vi_map = *map.get();
         LOG(INFO) << "Number of visual vertices: " << vi_map.numVertices();
         LOG(INFO) << "Number of lidar before: " << vi_map.numLidarVertices();
-        li_map::addLidarToMap(mission_ids, vi_map, keyframe_timestamps);
+        // li_map::addLidarToMap(mission_ids, vi_map, keyframe_timestamps);
 
         win_size = poses_G_S.size();
         LOG(INFO) << "Selected a total of " << poses_G_S.size()
@@ -894,7 +894,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
 
         // Optimize the planes together
         BALM2 opt_lsv;
-        // opt_lsv.damping_iter(poses_G_S, voxhess);
+        opt_lsv.damping_iter(poses_G_S, voxhess);
 
         // Free up the memory
         for (auto iter = surface_map.begin(); iter != surface_map.end();

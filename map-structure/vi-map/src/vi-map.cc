@@ -3439,5 +3439,4 @@ bool VIMap::mergeAllSubmapsFromMapWithoutResources(
   }
   return true;
 }
-
 }  // namespace vi_map

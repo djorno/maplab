@@ -1,4 +1,3 @@
-#include "dense-reconstruction/balm/li-map.h"
 #include "dense-reconstruction/voxblox-params.h"
 
 #include <chrono>
@@ -334,6 +333,8 @@ void VoxHess::cut_voxel(
     }
   }
 }
+
+VoxHess::VoxHess() : indices(), sig_vecs(), plvec_voxels(), coeffs() {}
 
 VoxHess::VoxHess(vi_map::VIMap* map) {
   vi_map::MissionIdList mission_ids;

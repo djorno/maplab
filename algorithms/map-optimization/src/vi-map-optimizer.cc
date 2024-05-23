@@ -43,9 +43,11 @@ bool VIMapOptimizer::optimize(
     return false;
   }
 
+  std::vector<std::shared_ptr<ceres::EvaluationCallback>> evaluation_callback;
+
   map_optimization::OptimizationProblem::UniquePtr optimization_problem(
       map_optimization::constructOptimizationProblem(
-          missions_to_optimize, options, map));
+          missions_to_optimize, options, map, &evaluation_callback));
   CHECK(optimization_problem);
 
   std::vector<std::shared_ptr<ceres::IterationCallback>> callbacks;
@@ -61,6 +63,9 @@ bool VIMapOptimizer::optimize(
   ceres::Solver::Options solver_options_with_callbacks = options.solver_options;
   map_optimization::addCallbacksToSolverOptions(
       callbacks, &solver_options_with_callbacks);
+
+  map_optimization::addEvaluationCallbackToSolverOptions(
+      evaluation_callback, &solver_options_with_callbacks);
 
   if (options.enable_visual_outlier_rejection) {
     map_optimization::solveWithOutlierRejection(
