@@ -93,6 +93,21 @@ class VoxHess {
       const aslam::Transformation& T_G_S, size_t index, size_t num_scans);
 };
 
+class VoxHessAtom {
+ public:
+  const std::vector<size_t>& index;
+  const PointCluster& sig;
+  const std::vector<PointCluster>& sig_origin;
+  double coeff;
+
+  VoxHessAtom(const VoxHess& voxhess, size_t& feature_index);
+
+  double evaluate_residual(
+      const std::vector<double*>& xs, PointCluster& sig_mutable,
+      Eigen::Vector3d& lmbd, Eigen::Matrix3d& U,
+      const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M);
+};
+
 class OctoTreeNode {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW

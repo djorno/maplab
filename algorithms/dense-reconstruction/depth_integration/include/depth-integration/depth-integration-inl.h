@@ -326,10 +326,6 @@ void integrateAllSensorDepthResourcesOfType(
 
       // Get transformation between reference (e.g. IMU) and sensor.
       aslam::Transformation T_B_S = sensor_manager.getSensor_T_B_S(sensor_id);
-      // log
-      LOG(INFO) << "Transform between sensor and reference frame: "
-                << T_B_S.getPosition().transpose() << " "
-                << T_B_S.getRotation().toImplementation().coeffs().transpose();
 
       // Get the sensor type, as cameras and LiDARs are treated differently.
       vi_map::SensorType sensor_type = sensor_manager.getSensorType(sensor_id);
