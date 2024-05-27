@@ -112,6 +112,7 @@ void addLandmarkTermForKeypoint(
 
   const double observation_uncertainty =
       visual_frame.getKeypointMeasurementUncertainty(keypoint_idx);
+  LOG(INFO) << "Uncertainty: " << observation_uncertainty;
 
   double* intrinsics_params = nullptr;
   double* distortion_params = nullptr;
@@ -542,33 +543,52 @@ int addBALMTerms(
     LOG(INFO) << "CP after eval callback construction";
     // loop over all features
     LOG(INFO) << "Num features: " << num_features;
-    for (size_t feat_ind = 0; feat_ind < num_features; ++feat_ind) {
-      // construct VoxHessAtom for the current feature
-      ceres_error_terms::VoxHessAtom voxhess_atom(voxhess, feat_ind);
-      // loop over all elements in sig_origin.size()
-      for (size_t sig_i = 0; sig_i < voxhess_atom.sig_origin.size(); ++sig_i) {
-        // construct the residual block for the current feature
-        std::shared_ptr<ceres_error_terms::BALMErrorTerm> balm_term_cost(
-            new ceres_error_terms::BALMErrorTerm(
-                std::static_pointer_cast<
-                    ceres_error_terms::BALMEvaluationCallback>(
-                    evaluation_callback_ptr->back()),
-                sig_i, feat_ind));
-        // add the residual block to the problem
-        double* vertex_q_IM__M_p_MI_JPL = xs[voxhess_atom.index[sig_i]];
-        std::shared_ptr<ceres::LossFunction> loss_function(
-            new ceres::LossFunctionWrapper(
-                new ceres::HuberLoss(1.0), ceres::TAKE_OWNERSHIP));
-        problem->getProblemInformationMutable()->addResidualBlock(
-            ceres_error_terms::ResidualType::kBALM, balm_term_cost,
-            loss_function, {vertex_q_IM__M_p_MI_JPL});
-        ++num_residuals_added;
 
-        problem->getProblemBookkeepingMutable()->keyframes_in_problem.emplace(
-            vertices[voxhess_atom.index[sig_i]]);
-        problem->getProblemInformationMutable()->setParameterization(
-            vertex_q_IM__M_p_MI_JPL, parameterizations.pose_parameterization);
+    const std::vector<const std::vector<size_t>*>& pose_indices =
+        voxhess.indices;
+
+    // a vector containing the indices of the feature and the individual
+    // observation of that feature made by each pose in xs
+    // feature_indices[i] contains the pair of (feature_index, sig_i) for the
+    // pose i
+    std::vector<std::vector<std::pair<size_t, size_t>>> feature_indices(
+        xs.size());
+
+    // Iterate through each feature
+    for (size_t n = 0; n < pose_indices.size(); ++n) {
+      const std::vector<size_t>& pose_indices_n = *pose_indices[n];
+      // For each pose influenced by feature n
+      for (size_t i = 0; i < pose_indices_n.size(); ++i) {
+        size_t m = pose_indices_n[i];
+        CHECK(m < xs.size());
+        feature_indices[m].emplace_back(n, i);
       }
+    }
+
+    for (size_t i = 0; i < xs.size(); ++i) {
+      // find the features that contribute to j_i
+      std::vector<std::pair<size_t, size_t>> feature_index = feature_indices[i];
+      // construct the residual block for the current feature
+      std::shared_ptr<ceres_error_terms::BALMErrorTerm> balm_term_cost(
+          new ceres_error_terms::BALMErrorTerm(
+              std::static_pointer_cast<
+                  ceres_error_terms::BALMEvaluationCallback>(
+                  evaluation_callback_ptr->back()),
+              i, feature_index));
+      // add the residual block to the problem
+      double* vertex_q_IM__M_p_MI_JPL = xs[i];
+      std::shared_ptr<ceres::LossFunction> loss_function(
+          new ceres::LossFunctionWrapper(
+              new ceres::HuberLoss(1.0), ceres::TAKE_OWNERSHIP));
+      problem->getProblemInformationMutable()->addResidualBlock(
+          ceres_error_terms::ResidualType::kBALM, balm_term_cost, loss_function,
+          {vertex_q_IM__M_p_MI_JPL});
+      ++num_residuals_added;
+
+      problem->getProblemBookkeepingMutable()->keyframes_in_problem.emplace(
+          vertices[i]);
+      problem->getProblemInformationMutable()->setParameterization(
+          vertex_q_IM__M_p_MI_JPL, parameterizations.pose_parameterization);
     }
   }
   return num_residuals_added;

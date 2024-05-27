@@ -163,11 +163,11 @@ OptimizationProblem* constructOptimizationProblem(
         evaluation_callback) {
   CHECK(map);
   CHECK(options.isValid());
-  ceres_error_terms::VoxHess voxhess(map);
+  ceres_error_terms::VoxHess voxhess;
   if (options.add_balm_constraints) {
     // add balm terms to optimization problem
     // create voxhess object
-    // ceres_error_terms::VoxHess voxhess(map);
+    voxhess.evaluate_voxhess(map);
     LOG(INFO) << "Num features " << voxhess.plvec_voxels.size();
     // procress voxhess
   }
@@ -323,7 +323,7 @@ OptimizationProblem* constructOptimizationProblem(
     // Determine observability of scale, global position and global orientation.
     const bool scale_is_observable =
         cluster_has_inertial || cluster_has_wheel_odometry ||
-        cluster_has_balm || cluster_has_6dof_odometry ||
+        cluster_has_6dof_odometry || cluster_has_balm ||
         (cluster_has_visual && cluster_num_absolute_6dof_used > 1u);
 
     const bool global_position_is_observable =

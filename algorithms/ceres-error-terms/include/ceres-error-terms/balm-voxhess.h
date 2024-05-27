@@ -86,6 +86,8 @@ class VoxHess {
 
   VoxHess();
 
+  void evaluate_voxhess(vi_map::VIMap* map);
+
   void push_voxel(
       const std::vector<size_t>* index,
       const std::vector<PointCluster>* sig_orig, const PointCluster* fix);
@@ -95,6 +97,9 @@ class VoxHess {
   void cut_voxel(
       SurfaceMap& surface_map, const resources::PointCloud& points_S,
       const aslam::Transformation& T_G_S, size_t index, size_t num_scans);
+
+ private:
+  bool update_map_ = true;
 };
 
 class VoxHessAtom {

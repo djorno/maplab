@@ -336,9 +336,17 @@ void VoxHess::cut_voxel(
 
 VoxHess::VoxHess() : indices(), sig_vecs(), plvec_voxels(), coeffs() {}
 
-VoxHess::VoxHess(vi_map::VIMap* map) {
+void VoxHess::evaluate_voxhess(vi_map::VIMap* map) {
   vi_map::MissionIdList mission_ids;
   map->getAllMissionIdsSortedByTimestamp(&mission_ids);
+
+  pose_graph::VertexIdList lid_vertices;
+  map->getAllLidarVertexIdsInMissionAlongGraph(mission_ids[0], &lid_vertices);
+  if (lid_vertices.size() == 0) {
+    update_map_ = true;
+  } else {
+    update_map_ = false;
+  }
 
   // Setting up BALM variables
   aslam::TransformationVector poses_G_S;
@@ -431,16 +439,13 @@ VoxHess::VoxHess(vi_map::VIMap* map) {
       integration_function, selection_function);
 
   // get vi_map::VIMap
-  vi_map::VIMap& vi_map = *map;
-  LOG(INFO) << "Number of visual vertices: " << vi_map.numVertices();
-  LOG(INFO) << "Number of lidar before: " << vi_map.numLidarVertices();
-  li_map::addLidarToMap(mission_ids, vi_map, keyframe_timestamps);
+  if (update_map_) {
+    vi_map::VIMap& vi_map = *map;
+    li_map::addLidarToMap(mission_ids, vi_map, keyframe_timestamps);
+    update_map_ = false;
+  }
 
   int win_size = poses_G_S.size();
-  LOG(INFO) << "Selected a total of " << poses_G_S.size()
-            << " LiDAR scans as keyframes.";
-  LOG(INFO) << "Number of visual keyframes: " << vi_map.numVertices();
-  LOG(INFO) << "Number of lidar after: " << vi_map.numLidarVertices();
 
   SurfaceMap surface_map;
   for (size_t i = 0; i < win_size; ++i) {
@@ -471,7 +476,9 @@ double VoxHessAtom::evaluate_residual(
   sig_mutable = sig;
   for (size_t sig_i = 0; sig_i < sig_origin.size(); ++sig_i) {
     const size_t i = index[sig_i];
+    CHECK(xs[i] != nullptr);
     Eigen::Map<const Eigen::Matrix<double, 7, 1>> xs_i(xs[i]);
+    // LOG(INFO) << "x_i = " << xs_i.transpose();
     // from active to passive from JPL to Hamilton --> no inversion needed
     Eigen::Quaterniond q_MI(xs_i.block<4, 1>(0, 0));
     Eigen::Vector3d p_MI = xs_i.block<3, 1>(4, 0);
@@ -486,6 +493,8 @@ double VoxHessAtom::evaluate_residual(
   Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(cmt);
   lmbd = saes.eigenvalues();
   U = saes.eigenvectors();
+
+  CHECK(coeff * lmbd[0] > 0.0) << "Negative residual: " << coeff * lmbd[0];
 
   return coeff * lmbd[0];
 }

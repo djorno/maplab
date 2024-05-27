@@ -40,9 +40,6 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
 
   void PrepareForEvaluation(
       bool evaluate_jacobians, bool new_evaluation_point) final {
-    LOG(INFO) << "PrepareForEvaluation";
-    LOG(INFO) << "num of features: " << num_features_;
-    LOG(INFO) << "num of atoms: " << voxhess_atoms_.size();
     if (new_evaluation_point) {
       for (size_t i = 0; i < num_features_; i++) {
         double res = voxhess_atoms_[i].evaluate_residual(
@@ -52,13 +49,36 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
       }
     }
 
-    LOG(INFO) << "Total num of residuals: " << residual_.size();
     LOG(INFO) << "Total residual sum: "
               << std::accumulate(residual_.begin(), residual_.end(), 0.0);
   }
 
   const double get_residual(const size_t feat_ind) const {
     return residual_[feat_ind];
+  }
+
+  const size_t get_num_features() const {
+    return num_features_;
+  }
+
+  const double get_total_residual() const {
+    return std::accumulate(residual_.begin(), residual_.end(), 0.0);
+  }
+
+  const double get_num_obs_for_feature(const size_t feat_ind) const {
+    return voxhess_atoms_[feat_ind].index.size();
+  }
+
+  const double get_accum_res_for_features(
+      const std::vector<std::pair<size_t, size_t>>& feature_index) const {
+    double accum_res = 0.0;
+    for (const auto& pair : feature_index) {
+      size_t feat_ind = pair.first;
+      double num_obs = get_num_obs_for_feature(feat_ind);
+      CHECK_GT(num_obs, 0.0) << "num_obs is 0";
+      accum_res += residual_[feat_ind] / num_obs;
+    }
+    return accum_res;
   }
 
   const aslam::Transformation get_T_I_S() const {
@@ -114,10 +134,11 @@ class BALMErrorTerm : public ceres::SizedCostFunction<
  public:
   BALMErrorTerm(
       const std::shared_ptr<BALMEvaluationCallback> evaluation_callback,
-      const size_t sig_i, const size_t feat_num)
-      : sig_i_(sig_i),
-        feat_num_(feat_num),
+      const size_t i,
+      const std::vector<std::pair<size_t, size_t>> feature_index)
+      : i_(i),
         evaluation_callback_(evaluation_callback),
+        feature_index_(feature_index),
         T_I_S_(evaluation_callback->get_T_I_S()),
         T_G_M_(evaluation_callback->get_T_G_M()) {
     CHECK_NOTNULL(evaluation_callback.get());
@@ -134,10 +155,11 @@ class BALMErrorTerm : public ceres::SizedCostFunction<
  private:
   enum { kIdxPose };
   const std::shared_ptr<BALMEvaluationCallback> evaluation_callback_;
-  const size_t sig_i_;
-  const size_t feat_num_;
+  const std::vector<std::pair<size_t, size_t>> feature_index_;
+  const size_t i_;
   const aslam::Transformation T_I_S_;
   const aslam::Transformation T_G_M_;
+  const double sigma_inv = 1.0 / 0.8;  // taken from VisualReprojectionError
 
   // The representation for Jacobian computed by this object.
   typedef Eigen::Matrix<

@@ -129,8 +129,11 @@ ceres::TerminationType solveStep(
   local_options.max_num_iterations = num_iters;
   local_options.update_state_every_iteration = true;
 
+  local_options.check_gradients = true;
+
   ceres::Solver::Summary summary;
   ceres::Solve(local_options, &problem, &summary);
+  std::cout << summary.FullReport() << std::endl;
 
   // Save the solver summary of each iteration.
   if (result != nullptr) {

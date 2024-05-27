@@ -122,14 +122,17 @@ void OptimizationProblem::applyGaugeFixesForInitialVertices(
         first_vertex_id_in_problem = current_vertex_id;
         break;
       }
-    } while (map_->getNextVertex(current_vertex_id, &current_vertex_id));
+    } while (map_->getNextVertexIncludingLidar(
+        current_vertex_id, &current_vertex_id));
     CHECK(first_vertex_id_in_problem.isValid());
+    LOG(INFO) << "First vertex in problem: " << first_vertex_id_in_problem;
     fixOpenDoFOfInitialVertex(
         state_buffer_.get_vertex_q_IM__M_p_MI_JPL(first_vertex_id_in_problem),
         state_buffer_.get_baseframe_q_GM__G_p_GM_JPL(
             map_->getMissionBaseFrameForMission(first_mission_id).id()),
         new_cluster_fix.rotation_dof_fixed, new_cluster_fix.position_dof_fixed,
         &problem_information_);
+    LOG(INFO) << "Fixed open DoF of first vertex in cluster " << cluster_idx;
 
     message << "  cluster " << cluster_idx << ":\n"
             << "    missions of cluster: "
