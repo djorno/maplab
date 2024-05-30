@@ -149,7 +149,6 @@ class VoxHess {
           umumT += 2.0 / (lmbd[kk] - lmbd[i]) * u[i] * u[i].transpose();
         }
       }
-      LOG(INFO) << sig_orig.size();
       for (size_t sig_i = 0; sig_i < sig_orig.size(); ++sig_i) {
         Eigen::Matrix3d Pi = sig_orig[sig_i].P;
         Eigen::Vector3d vi = sig_orig[sig_i].v;

@@ -534,13 +534,6 @@ int addBALMTerms(
         map->getMission(mission_id).getLidarId());
     const aslam::Transformation& T_G_M =
         map->getMissionBaseFrameForMission(mission_id).get_T_G_M();
-
-    // construct the evaluation callback for the current feature
-    LOG(INFO) << "CP before eval callback construction";
-    evaluation_callback_ptr->emplace_back(
-        std::make_shared<ceres_error_terms::BALMEvaluationCallback>(
-            voxhess, xs, T_I_S, T_G_M));
-    LOG(INFO) << "CP after eval callback construction";
     // loop over all features
     LOG(INFO) << "Num features: " << num_features;
 
@@ -564,31 +557,26 @@ int addBALMTerms(
         feature_indices[m].emplace_back(n, i);
       }
     }
-
+    LOG(INFO) << "R_I_S: " << T_I_S.getRotationMatrix();
+    LOG(INFO) << "t_I_S: " << T_I_S.getPosition();
+    LOG(INFO) << "R_G_M: " << T_G_M.getRotationMatrix();
+    LOG(INFO) << "t_G_M: " << T_G_M.getPosition();
+    std::shared_ptr<ceres_error_terms::BALMErrorTerm> balm_term_cost(
+        new ceres_error_terms::BALMErrorTerm(
+            voxhess, T_I_S, T_G_M, feature_indices));
+    // add the residual block to the problem
+    std::shared_ptr<ceres::LossFunction> loss_function(
+        new ceres::LossFunctionWrapper(
+            new ceres::HuberLoss(1.0), ceres::TAKE_OWNERSHIP));
+    problem->getProblemInformationMutable()->addResidualBlock(
+        ceres_error_terms::ResidualType::kBALM, balm_term_cost, loss_function,
+        xs);
+    ++num_residuals_added;
     for (size_t i = 0; i < xs.size(); ++i) {
-      // find the features that contribute to j_i
-      std::vector<std::pair<size_t, size_t>> feature_index = feature_indices[i];
-      // construct the residual block for the current feature
-      std::shared_ptr<ceres_error_terms::BALMErrorTerm> balm_term_cost(
-          new ceres_error_terms::BALMErrorTerm(
-              std::static_pointer_cast<
-                  ceres_error_terms::BALMEvaluationCallback>(
-                  evaluation_callback_ptr->back()),
-              i, feature_index));
-      // add the residual block to the problem
-      double* vertex_q_IM__M_p_MI_JPL = xs[i];
-      std::shared_ptr<ceres::LossFunction> loss_function(
-          new ceres::LossFunctionWrapper(
-              new ceres::HuberLoss(1.0), ceres::TAKE_OWNERSHIP));
-      problem->getProblemInformationMutable()->addResidualBlock(
-          ceres_error_terms::ResidualType::kBALM, balm_term_cost, loss_function,
-          {vertex_q_IM__M_p_MI_JPL});
-      ++num_residuals_added;
-
+      problem->getProblemInformationMutable()->setParameterization(
+          xs[i], parameterizations.pose_parameterization);
       problem->getProblemBookkeepingMutable()->keyframes_in_problem.emplace(
           vertices[i]);
-      problem->getProblemInformationMutable()->setParameterization(
-          vertex_q_IM__M_p_MI_JPL, parameterizations.pose_parameterization);
     }
   }
   return num_residuals_added;

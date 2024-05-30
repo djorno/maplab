@@ -112,9 +112,9 @@ class VoxHessAtom {
   VoxHessAtom(const VoxHess& voxhess, size_t& feature_index);
 
   double evaluate_residual(
-      const std::vector<double*>& xs, PointCluster& sig_mutable,
+      const std::vector<const double*>& xs, PointCluster& sig_mutable,
       Eigen::Vector3d& lmbd, Eigen::Matrix3d& U,
-      const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M);
+      const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M) const;
 };
 
 class OctoTreeNode {

@@ -4,7 +4,7 @@
 #include <vector>
 
 #include <Eigen/Core>
-#include <ceres/sized_cost_function.h>
+#include <ceres/cost_function.h>
 #include <glog/logging.h>
 // #include <vi-map/point-cluster.h>
 #include <ceres-error-terms/balm-voxhess.h>
@@ -16,76 +16,48 @@ namespace ceres_error_terms {
 // in JPL convention [x, y, z, w]. This convention corresponds to the internal
 // coefficient storage of Eigen so you can directly pass pointer to your
 // Eigen quaternion data, e.g. your_eigen_quaternion.coeffs().data().
-class BALMEvaluationCallback : public ceres::EvaluationCallback {
+
+class BALMErrorTerm : public ceres::CostFunction {
  public:
-  BALMEvaluationCallback(
-      const VoxHess& voxhess, const std::vector<double*> xs,
-      const aslam::Transformation T_I_S, const aslam::Transformation T_G_M)
-      : xs_(xs),
+  BALMErrorTerm(
+      const VoxHess& voxhess, const aslam::Transformation& T_I_S,
+      const aslam::Transformation& T_G_M,
+      const std::vector<std::vector<std::pair<size_t, size_t>>> feature_indices)
+      : feature_indices_(feature_indices),
+        num_poses_(feature_indices.size()),
         T_I_S_(T_I_S),
         T_G_M_(T_G_M),
         num_features_(voxhess.plvec_voxels.size()) {
+    // for ceres::CostFunction
+    set_num_residuals(balmblocks::kResidualSize);
+    std::vector<int32_t>* parameter_block_sizes =
+        mutable_parameter_block_sizes();
+    parameter_block_sizes->resize(num_poses_, balmblocks::kPoseSize);
+
     lmbd_.resize(num_features_);
     U_.resize(num_features_);
-    residual_.resize(num_features_);
     uk_.resize(num_features_);
     sig_transformed_.resize(num_features_);
-
-    // subdivide voxhess into atoms
     for (size_t i = 0; i < num_features_; i++) {
       voxhess_atoms_.push_back(VoxHessAtom(voxhess, i));
     }
     LOG(INFO) << "num features in BEC: " << num_features_;
   }
 
-  void PrepareForEvaluation(
-      bool evaluate_jacobians, bool new_evaluation_point) final {
-    if (new_evaluation_point) {
-      for (size_t i = 0; i < num_features_; i++) {
-        double res = voxhess_atoms_[i].evaluate_residual(
-            xs_, sig_transformed_[i], lmbd_[i], U_[i], T_I_S_, T_G_M_);
-        residual_[i] = res;
-        uk_[i] = U_[i].col(0);
-      }
-    }
+  virtual ~BALMErrorTerm() {}
 
-    LOG(INFO) << "Total residual sum: "
-              << std::accumulate(residual_.begin(), residual_.end(), 0.0);
-  }
+  virtual bool Evaluate(
+      double const* const* parameters, double* residuals_ptr,
+      double** jacobians) const;
 
-  const double get_residual(const size_t feat_ind) const {
-    return residual_[feat_ind];
-  }
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   const size_t get_num_features() const {
     return num_features_;
   }
 
-  const double get_total_residual() const {
-    return std::accumulate(residual_.begin(), residual_.end(), 0.0);
-  }
-
   const double get_num_obs_for_feature(const size_t feat_ind) const {
     return voxhess_atoms_[feat_ind].index.size();
-  }
-
-  const double get_accum_res_for_features(
-      const std::vector<std::pair<size_t, size_t>>& feature_index) const {
-    double accum_res = 0.0;
-    for (const auto& pair : feature_index) {
-      size_t feat_ind = pair.first;
-      double num_obs = get_num_obs_for_feature(feat_ind);
-      CHECK_GT(num_obs, 0.0) << "num_obs is 0";
-      accum_res += residual_[feat_ind] / num_obs;
-    }
-    return accum_res;
-  }
-
-  const aslam::Transformation get_T_I_S() const {
-    return T_I_S_;
-  }
-  const aslam::Transformation get_T_G_M() const {
-    return T_G_M_;
   }
 
   const std::vector<size_t>& get_index(const size_t feat_ind) const {
@@ -117,48 +89,17 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
   }
 
  private:
-  const size_t num_features_;
-  std::vector<double> residual_;
-  std::vector<VoxHessAtom> voxhess_atoms_;
-  std::vector<PointCluster> sig_transformed_;
-  const std::vector<double*> xs_;
-  std::vector<Eigen::Vector3d> lmbd_;
-  std::vector<Eigen::Matrix3d> U_;
-  std::vector<Eigen::Vector3d> uk_;
-  const aslam::Transformation T_I_S_;
-  const aslam::Transformation T_G_M_;
-};
-
-class BALMErrorTerm : public ceres::SizedCostFunction<
-                          balmblocks::kResidualSize, balmblocks::kPoseSize> {
- public:
-  BALMErrorTerm(
-      const std::shared_ptr<BALMEvaluationCallback> evaluation_callback,
-      const size_t i,
-      const std::vector<std::pair<size_t, size_t>> feature_index)
-      : i_(i),
-        evaluation_callback_(evaluation_callback),
-        feature_index_(feature_index),
-        T_I_S_(evaluation_callback->get_T_I_S()),
-        T_G_M_(evaluation_callback->get_T_G_M()) {
-    CHECK_NOTNULL(evaluation_callback.get());
-  }
-
-  virtual ~BALMErrorTerm() {}
-
-  virtual bool Evaluate(
-      double const* const* parameters, double* residuals_ptr,
-      double** jacobians) const;
-
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
- private:
   enum { kIdxPose };
-  const std::shared_ptr<BALMEvaluationCallback> evaluation_callback_;
-  const std::vector<std::pair<size_t, size_t>> feature_index_;
-  const size_t i_;
+  const std::vector<std::vector<std::pair<size_t, size_t>>> feature_indices_;
+  std::vector<VoxHessAtom> voxhess_atoms_;
+  mutable std::vector<PointCluster> sig_transformed_;
+  const size_t num_poses_;
+  const size_t num_features_;
   const aslam::Transformation T_I_S_;
   const aslam::Transformation T_G_M_;
+  mutable std::vector<Eigen::Vector3d> lmbd_;
+  mutable std::vector<Eigen::Matrix3d> U_;
+  mutable std::vector<Eigen::Vector3d> uk_;
   const double sigma_inv = 1.0 / 0.8;  // taken from VisualReprojectionError
 
   // The representation for Jacobian computed by this object.

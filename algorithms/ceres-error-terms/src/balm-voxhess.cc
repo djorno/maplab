@@ -470,9 +470,10 @@ VoxHessAtom::VoxHessAtom(const VoxHess& voxhess, size_t& feature_index)
       coeff(voxhess.coeffs[feature_index]) {}
 
 double VoxHessAtom::evaluate_residual(
-    const std::vector<double*>& xs, PointCluster& sig_mutable,
+    const std::vector<const double*>& xs, PointCluster& sig_mutable,
     Eigen::Vector3d& lmbd, Eigen::Matrix3d& U,
-    const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M) {
+    const aslam::Transformation& T_I_S,
+    const aslam::Transformation& T_G_M) const {
   sig_mutable = sig;
   for (size_t sig_i = 0; sig_i < sig_origin.size(); ++sig_i) {
     const size_t i = index[sig_i];
