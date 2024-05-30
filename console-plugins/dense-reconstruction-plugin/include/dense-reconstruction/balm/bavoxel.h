@@ -456,13 +456,10 @@ class BALM2 {
     bool is_calc_hess = true;
     aslam::TransformationVector x_stats_temp = x_stats;
 
-    for (int i = 0; i < 1; i++) {
+    for (int i = 0; i < 10; i++) {
       if (is_calc_hess) {
         residual1 = divide_thread(x_stats, voxhess, Hess, JacT);
-      }
-      for (int k = 0; k < win_size; k++) {
-        LOG(INFO) << "Jacobian i: " << k << " = "
-                  << JacT.block<6, 1>(6 * k, 0).transpose();
+        // Hess = JacT * JacT.transpose();
       }
 
       D.diagonal() = Hess.diagonal();

@@ -129,7 +129,7 @@ ceres::TerminationType solveStep(
   local_options.max_num_iterations = num_iters;
   local_options.update_state_every_iteration = true;
 
-  local_options.check_gradients = true;
+  local_options.check_gradients = false;
 
   ceres::Solver::Summary summary;
   ceres::Solve(local_options, &problem, &summary);

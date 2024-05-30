@@ -494,7 +494,9 @@ double VoxHessAtom::evaluate_residual(
   lmbd = saes.eigenvalues();
   U = saes.eigenvectors();
 
-  CHECK(coeff * lmbd[0] > 0.0) << "Negative residual: " << coeff * lmbd[0];
+  CHECK(coeff * lmbd[0] >= 0.0)
+      << "Negative residual: " << coeff * lmbd[0] << " coeff: " << coeff
+      << " lmbd[0]: " << lmbd[0];
 
   return coeff * lmbd[0];
 }

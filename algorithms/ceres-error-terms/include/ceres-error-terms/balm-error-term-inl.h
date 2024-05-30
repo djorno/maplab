@@ -26,7 +26,6 @@ bool BALMErrorTerm::Evaluate(
   CHECK(parameters != nullptr);
 
   if (residuals) {
-    evaluation_callback_->PrepareForEvaluation(true, true);
     *residuals =
         evaluation_callback_->get_accum_res_for_features(feature_index_);
   } else {
@@ -113,7 +112,7 @@ bool BALMErrorTerm::Evaluate(
         common::skew(T_M_I.getRotationMatrix() * T_I_S.getPosition());
 
     Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_p_M_I = Eigen::Matrix3d::Zero();
-    Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_q_M_I = Eigen::Matrix3d::Identity();
+    Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_q_M_I = R_S_I;
     // LOG(INFO) << "CP 9";
 
     Eigen::Matrix<double, 6, 6> J_T_M_S_wrt_T_M_I =
@@ -154,7 +153,7 @@ bool BALMErrorTerm::Evaluate(
           q_M_I.coeffs().data(), J_quat_local_param.data());
       J.setZero();
       J.leftCols(balmblocks::kOrientationBlockSize) =
-          J_res_wrt_q_M_I * J_quat_local_param.transpose();
+          J_res_wrt_q_M_I * 4 * J_quat_local_param.transpose();
       // LOG(INFO) << "CP 14";
       J.rightCols(balmblocks::kPositionBlockSize) = J_res_wrt_p_M_I;
       // LOG(INFO) << "Jacobian mod i: " << i_ << " = " << J;
