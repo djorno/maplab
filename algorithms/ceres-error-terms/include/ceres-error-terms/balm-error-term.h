@@ -4,10 +4,9 @@
 #include <vector>
 
 #include <Eigen/Core>
-#include <ceres/sized_cost_function.h>
-#include <glog/logging.h>
-// #include <vi-map/point-cluster.h>
 #include <ceres-error-terms/balm-voxhess.h>
+#include <ceres/cost_function.h>
+#include <glog/logging.h>
 
 #include <ceres-error-terms/common.h>
 
@@ -69,16 +68,16 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
     return voxhess_atoms_[feat_ind].index.size();
   }
 
-  const double get_accum_res_for_features(
+  const std::vector<double> get_accum_res_for_features(
       const std::vector<std::pair<size_t, size_t>>& feature_index) const {
-    double accum_res = 0.0;
+    std::vector<double> res_vec;
     for (const auto& pair : feature_index) {
       size_t feat_ind = pair.first;
       double num_obs = get_num_obs_for_feature(feat_ind);
       CHECK_GT(num_obs, 0.0) << "num_obs is 0";
-      accum_res += residual_[feat_ind] / num_obs;
+      res_vec.push_back(residual_[feat_ind] / num_obs);
     }
-    return accum_res;
+    return res_vec;
   }
 
   const aslam::Transformation get_T_I_S() const {
@@ -129,8 +128,7 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
   const aslam::Transformation T_G_M_;
 };
 
-class BALMErrorTerm : public ceres::SizedCostFunction<
-                          balmblocks::kResidualSize, balmblocks::kPoseSize> {
+class BALMErrorTerm : public ceres::CostFunction {
  public:
   BALMErrorTerm(
       const std::shared_ptr<BALMEvaluationCallback> evaluation_callback,
@@ -140,8 +138,13 @@ class BALMErrorTerm : public ceres::SizedCostFunction<
         evaluation_callback_(evaluation_callback),
         feature_index_(feature_index),
         T_I_S_(evaluation_callback->get_T_I_S()),
-        T_G_M_(evaluation_callback->get_T_G_M()) {
+        T_G_M_(evaluation_callback->get_T_G_M()),
+        residual_size_(feature_index.size()) {
     CHECK_NOTNULL(evaluation_callback.get());
+    set_num_residuals(residual_size_);
+    std::vector<int32_t>* parameter_block_sizes =
+        mutable_parameter_block_sizes();
+    parameter_block_sizes->resize(1, balmblocks::kPoseSize);
   }
 
   virtual ~BALMErrorTerm() {}
@@ -157,13 +160,14 @@ class BALMErrorTerm : public ceres::SizedCostFunction<
   const std::shared_ptr<BALMEvaluationCallback> evaluation_callback_;
   const std::vector<std::pair<size_t, size_t>> feature_index_;
   const size_t i_;
+  const int residual_size_;
   const aslam::Transformation T_I_S_;
   const aslam::Transformation T_G_M_;
   const double sigma_inv = 1.0 / 0.8;  // taken from VisualReprojectionError
 
   // The representation for Jacobian computed by this object.
   typedef Eigen::Matrix<
-      double, balmblocks::kResidualSize, balmblocks::kPoseSize, Eigen::RowMajor>
+      double, Eigen::Dynamic, balmblocks::kPoseSize, Eigen::RowMajor>
       PoseJacobian;
 };
 

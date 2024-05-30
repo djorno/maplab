@@ -180,6 +180,9 @@ class VoxHess {
         const Eigen::Matrix<double, 6, 1>& jjt = Auk[i].transpose() * uk;
         JacT.block<6, 1>(6 * i, 0) += coe * jjt;
 
+        // LOG(INFO) << "Jac of i: " << i << " feat: " << a
+        //           << " jac =" << coe * jjt.transpose();
+
         const Eigen::Matrix3d& HRt = 2.0 / NN * (1.0 - ni / NN) * viRiTukukT[i];
         Eigen::Matrix<double, 6, 6> Hb = Auk[i].transpose() * umumT * Auk[i];
         Hb.block<3, 3>(0, 0) +=
@@ -456,7 +459,7 @@ class BALM2 {
     bool is_calc_hess = true;
     aslam::TransformationVector x_stats_temp = x_stats;
 
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 1; i++) {
       if (is_calc_hess) {
         residual1 = divide_thread(x_stats, voxhess, Hess, JacT);
         // Hess = JacT * JacT.transpose();

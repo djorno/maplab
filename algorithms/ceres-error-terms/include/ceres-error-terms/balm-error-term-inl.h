@@ -15,10 +15,8 @@ bool BALMErrorTerm::Evaluate(
   // Coordinate frames:
   //  G = global
   //  M = mission of the keyframe vertex, expressed in G
-  //  LM = mission of the landmark-base vertex, expressed in G
-  //  B = base vertex of the landmark, expressed in LM
   //  I = IMU position of the keyframe vertex, expressed in M
-  //  C = LiDAR position, expressed in I
+  //  S = LiDAR position, expressed in I
   // LOG(INFO) << "BALMErrorTerm::Evaluate";
   JplQuaternionParameterization quat_parametrization;
   // LOG(INFO) << "CP 1";
@@ -26,8 +24,12 @@ bool BALMErrorTerm::Evaluate(
   CHECK(parameters != nullptr);
 
   if (residuals) {
-    *residuals =
+    std::vector<double> res_vec =
         evaluation_callback_->get_accum_res_for_features(feature_index_);
+    CHECK(res_vec.size() == residual_size_);
+    Eigen::Map<Eigen::VectorXd> residuals_eigen(residuals, residual_size_);
+    residuals_eigen =
+        Eigen::Map<const Eigen::VectorXd>(res_vec.data(), residual_size_);
   } else {
     LOG(WARNING) << "Residuals not set";
   }
@@ -45,12 +47,18 @@ bool BALMErrorTerm::Evaluate(
     aslam::Transformation T_G_M = evaluation_callback_->get_T_G_M();
     aslam::Transformation T_I_S = evaluation_callback_->get_T_I_S();
     // LOG(INFO) << "CP 3";
-    Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_G_S =
-        Eigen::Matrix<double, balmblocks::kResidualSize, 6>::Zero();
+    Eigen::Matrix<double, Eigen::Dynamic, 6> J_res_full_wrt_T_M_I;
+    J_res_full_wrt_T_M_I.resize(residual_size_, 6);
+    J_res_full_wrt_T_M_I.setZero();
     // Transform T_M_I to T_G_S for BALM jacobian calculation
     aslam::Transformation T_G_S = T_G_M * T_M_I * T_I_S;
 
+    Eigen::Matrix<double, 3, 3> R_S_I = T_I_S.getRotationMatrix().transpose();
+    Eigen::Matrix<double, 3, 3> R_I_G = T_M_I.getRotationMatrix().transpose() *
+                                        T_G_M.getRotationMatrix().transpose();
+
     // Evaluate the jacobian as in bavoxel.h
+    size_t res_number = 0;
     for (const auto& pair : feature_index_) {
       size_t feat_num = pair.first;
       size_t sig_i = pair.second;
@@ -94,68 +102,50 @@ bool BALMErrorTerm::Evaluate(
       // LOG(INFO) << "CP 7";
 
       const Eigen::Matrix<double, 6, 1>& jjt = Auk.transpose() * uk;
-      J_res_wrt_T_G_S += coe * jjt.transpose();
+      Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_G_S =
+          coe * jjt.transpose();
+
+      ////////////// TRANSFORM JACOBIAN TO T_M_I //////////////////
+      Eigen::Matrix<double, 3, 3> J_p_M_S_wrt_p_M_I =
+          Eigen::Matrix3d::Identity();
+      Eigen::Matrix<double, 3, 3> J_p_M_S_wrt_q_M_I =
+          common::skew(T_M_I.getRotationMatrix() * T_I_S.getPosition());
+
+      Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_p_M_I = Eigen::Matrix3d::Zero();
+      Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_q_M_I = R_S_I;
+
+      Eigen::Matrix<double, 6, 6> J_T_M_S_wrt_T_M_I =
+          Eigen::Matrix<double, 6, 6>::Zero();
+      J_T_M_S_wrt_T_M_I.block<3, 3>(0, 0) = J_q_M_S_wrt_q_M_I;
+      J_T_M_S_wrt_T_M_I.block<3, 3>(3, 3) = J_p_M_S_wrt_p_M_I;
+      J_T_M_S_wrt_T_M_I.block<3, 3>(3, 0) = J_p_M_S_wrt_q_M_I;
+      J_T_M_S_wrt_T_M_I.block<3, 3>(0, 3) = J_q_M_S_wrt_p_M_I;
+
+      Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_M_I =
+          J_res_wrt_T_G_S * J_T_M_S_wrt_T_M_I;
+      ////////////////////////////////////////////////////////////
+      CHECK(res_number < residual_size_);
+      J_res_full_wrt_T_M_I.row(res_number) = J_res_wrt_T_G_S;
+      //   LOG(INFO) << "Jac of i: " << i_ << " feat: " << feat_num
+      //             << "jac =" << J_res_wrt_T_G_S;
+      res_number++;
     }
-    // LOG(INFO) << "Jacobian i: " << i_ << " = " << J_res_wrt_T_G_S;
-
-    const Eigen::Matrix<double, 3, 1> J_res_wrt_p_M_S =
-        J_res_wrt_T_G_S.block<3, 1>(0, 3);
-    const Eigen::Matrix<double, 3, 1> J_res_wrt_q_M_S =
-        J_res_wrt_T_G_S.block<3, 1>(0, 0);
-
-    Eigen::Matrix<double, 3, 3> R_S_I = T_I_S.getRotationMatrix().transpose();
-    Eigen::Matrix<double, 3, 3> R_I_G = T_M_I.getRotationMatrix().transpose() *
-                                        T_G_M.getRotationMatrix().transpose();
-
-    Eigen::Matrix<double, 3, 3> J_p_M_S_wrt_p_M_I = Eigen::Matrix3d::Identity();
-    Eigen::Matrix<double, 3, 3> J_p_M_S_wrt_q_M_I =
-        common::skew(T_M_I.getRotationMatrix() * T_I_S.getPosition());
-
-    Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_p_M_I = Eigen::Matrix3d::Zero();
-    Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_q_M_I = R_S_I;
-    // LOG(INFO) << "CP 9";
-
-    Eigen::Matrix<double, 6, 6> J_T_M_S_wrt_T_M_I =
-        Eigen::Matrix<double, 6, 6>::Zero();
-    J_T_M_S_wrt_T_M_I.block<3, 3>(0, 0) = J_q_M_S_wrt_q_M_I;
-    J_T_M_S_wrt_T_M_I.block<3, 3>(3, 3) = J_p_M_S_wrt_p_M_I;
-    J_T_M_S_wrt_T_M_I.block<3, 3>(3, 0) = J_p_M_S_wrt_q_M_I;
-    J_T_M_S_wrt_T_M_I.block<3, 3>(0, 3) = J_q_M_S_wrt_p_M_I;
-
-    // Eigen::Matrix<double, 6, 6> adj = Eigen::Matrix<double, 6, 6>::Zero();
-
-    // aslam::Transformation T_M_S = T_M_I * T_I_S;
-
-    // Eigen::Matrix<double, 3, 3> R_I_S = T_I_S.getRotationMatrix();
-
-    // adj.block<3, 3>(0, 0) = R_I_S;
-    // adj.block<3, 3>(3, 3) = R_I_S;
-    // adj.block<3, 3>(3, 0) = common::skew(T_I_S.getPosition()) * R_I_S;
-
-    Eigen::Matrix<double, 1, 6> J_res_wrt_T_M_I =
-        J_res_wrt_T_G_S * J_T_M_S_wrt_T_M_I;
-
-    // Eigen::Matrix<double, 1, 6> J_res_wrt_T_M_I = J_res_wrt_T_G_S * adj;
-
-    Eigen::Matrix<double, 1, 3> J_res_wrt_q_M_I =
-        J_res_wrt_T_M_I.block<1, 3>(0, 0);
-    Eigen::Matrix<double, 1, 3> J_res_wrt_p_M_I =
-        J_res_wrt_T_M_I.block<1, 3>(0, 3);
 
     // LOG(INFO) << "CP 10"
     // LOG(INFO) << "CP 11";
     if (jacobians[kIdxPose]) {
-      Eigen::Map<PoseJacobian> J(jacobians[kIdxPose]);
-      // LOG(INFO) << "CP 12";
+      Eigen::Map<PoseJacobian> J(
+          jacobians[kIdxPose], residual_size_, balmblocks::kPoseSize);
+
       Eigen::Matrix<double, 4, 3, Eigen::RowMajor> J_quat_local_param;
-      // LOG(INFO) << "CP 13";
       quat_parametrization.ComputeJacobian(
           q_M_I.coeffs().data(), J_quat_local_param.data());
       J.setZero();
       J.leftCols(balmblocks::kOrientationBlockSize) =
-          J_res_wrt_q_M_I * 4 * J_quat_local_param.transpose();
-      // LOG(INFO) << "CP 14";
-      J.rightCols(balmblocks::kPositionBlockSize) = J_res_wrt_p_M_I;
+          J_res_full_wrt_T_M_I.leftCols(balmblocks::kOrientationBlockSize) * 4 *
+          J_quat_local_param.transpose();
+      J.rightCols(balmblocks::kPositionBlockSize) =
+          J_res_full_wrt_T_M_I.rightCols(balmblocks::kPositionBlockSize);
       // LOG(INFO) << "Jacobian mod i: " << i_ << " = " << J;
     } else {
       LOG(INFO) << "Jacobian not set";
