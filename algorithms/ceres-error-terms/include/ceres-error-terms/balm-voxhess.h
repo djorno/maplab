@@ -115,6 +115,11 @@ class VoxHessAtom {
       const std::vector<double*>& xs, PointCluster& sig_mutable,
       Eigen::Vector3d& lmbd, Eigen::Matrix3d& U,
       const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M);
+
+  std::vector<double> evaluate_residuals_per_pose(
+      const std::vector<double*>& xs, PointCluster& sig_mutable,
+      Eigen::Vector3d& lmbd, Eigen::Matrix3d& U,
+      const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M);
 };
 
 class OctoTreeNode {

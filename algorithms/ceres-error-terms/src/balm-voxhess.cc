@@ -500,4 +500,53 @@ double VoxHessAtom::evaluate_residual(
 
   return coeff * lmbd[0];
 }
+std::vector<double> VoxHessAtom::evaluate_residuals_per_pose(
+    const std::vector<double*>& xs, PointCluster& sig_mutable,
+    Eigen::Vector3d& lmbd, Eigen::Matrix3d& U,
+    const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M) {
+  std::vector<double> residuals(sig_origin.size() + 1, 0);
+  sig_mutable = sig;
+  for (size_t dropout_ind = 0; dropout_ind <= sig_origin.size();
+       ++dropout_ind) {
+    for (size_t sig_i = 0; sig_i < sig_origin.size(); ++sig_i) {
+      if (sig_i == dropout_ind) {
+        continue;
+      }
+      const size_t i = index[sig_i];
+      CHECK(xs[i] != nullptr);
+      Eigen::Map<const Eigen::Matrix<double, 7, 1>> xs_i(xs[i]);
+      // LOG(INFO) << "x_i = " << xs_i.transpose();
+      // from active to passive from JPL to Hamilton --> no inversion needed
+      Eigen::Quaterniond q_MI(xs_i.block<4, 1>(0, 0));
+      Eigen::Vector3d p_MI = xs_i.block<3, 1>(4, 0);
+      aslam::Transformation T_M_I(q_MI, p_MI);
+      aslam::Transformation T_G_S = T_G_M * T_M_I * T_I_S;
+      // BALM operates in the sensor frame, not inertial frame.
+      sig_mutable += sig_origin[sig_i].transform(T_G_S);
+    }
+
+    Eigen::Vector3d vBar = sig_mutable.v / sig_mutable.N;
+    Eigen::Matrix3d cmt =
+        sig_mutable.P / sig_mutable.N - vBar * vBar.transpose();
+
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(cmt);
+    lmbd = saes.eigenvalues();
+    U = saes.eigenvectors();
+    if (dropout_ind < sig_origin.size()) {
+      residuals[dropout_ind] = -coeff * lmbd[0];
+    } else {
+      double final_res = coeff * lmbd[0];
+      std::transform(
+          residuals.begin(), residuals.end(), residuals.begin(),
+          [final_res](double res) { return res + final_res; });
+      // not necessary, but for clarity
+      residuals.back() = final_res;
+    }
+  }
+  CHECK(std::all_of(residuals.begin(), residuals.end(), [](double num) {
+    return num > 0.0;
+  }));
+  return residuals;
+}
+
 }  // namespace ceres_error_terms

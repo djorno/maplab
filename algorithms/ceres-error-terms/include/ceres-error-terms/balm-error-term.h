@@ -37,12 +37,30 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
     LOG(INFO) << "num features in BEC: " << num_features_;
   }
 
+  // void PrepareForEvaluation(
+  //     bool evaluate_jacobians, bool new_evaluation_point) final {
+  //   if (new_evaluation_point) {
+  //     for (size_t i = 0; i < num_features_; i++) {
+  //       double res = voxhess_atoms_[i].evaluate_residual(
+  //           xs_, sig_transformed_[i], lmbd_[i], U_[i], T_I_S_, T_G_M_);
+  //       residual_[i] = res;
+  //       uk_[i] = U_[i].col(0);
+  //     }
+  //   }
+
+  //   LOG(INFO) << "Total residual sum: "
+  //             << std::accumulate(residual_.begin(), residual_.end(), 0.0);
+  // }
+
   void PrepareForEvaluation(
       bool evaluate_jacobians, bool new_evaluation_point) final {
     if (new_evaluation_point) {
       for (size_t i = 0; i < num_features_; i++) {
-        double res = voxhess_atoms_[i].evaluate_residual(
-            xs_, sig_transformed_[i], lmbd_[i], U_[i], T_I_S_, T_G_M_);
+        std::vector<double> residuals =
+            voxhess_atoms_[i].evaluate_residuals_per_pose(
+                xs_, sig_transformed_[i], lmbd_[i], U_[i], T_I_S_, T_G_M_);
+        residuals_per_pose_.push_back(residuals);
+        double res = residuals.back();
         residual_[i] = res;
         uk_[i] = U_[i].col(0);
       }
@@ -66,6 +84,20 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
 
   const double get_num_obs_for_feature(const size_t feat_ind) const {
     return voxhess_atoms_[feat_ind].index.size();
+  }
+
+  const std::vector<double> get_residuals_per_pose(
+      const std::vector<std::pair<size_t, size_t>>& feature_index) const {
+    std::vector<double> res_vec;
+    for (const auto& pair : feature_index) {
+      size_t feat_ind = pair.first;
+      size_t pose_ind = pair.second;
+      CHECK_GT(residuals_per_pose_[feat_ind].size(), pose_ind)
+          << "residuals_per_pose_ size is "
+          << residuals_per_pose_[feat_ind].size() << " and pose_ind is "
+          << pose_ind;
+      res_vec.push_back(residuals_per_pose_[feat_ind][pose_ind]);
+    }
   }
 
   const std::vector<double> get_accum_res_for_features(
@@ -118,6 +150,7 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
  private:
   const size_t num_features_;
   std::vector<double> residual_;
+  std::vector<std::vector<double>> residuals_per_pose_;
   std::vector<VoxHessAtom> voxhess_atoms_;
   std::vector<PointCluster> sig_transformed_;
   const std::vector<double*> xs_;

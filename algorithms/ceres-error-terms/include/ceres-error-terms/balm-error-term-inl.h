@@ -25,7 +25,7 @@ bool BALMErrorTerm::Evaluate(
 
   if (residuals) {
     std::vector<double> res_vec =
-        evaluation_callback_->get_accum_res_for_features(feature_index_);
+        evaluation_callback_->get_residuals_per_pose(feature_index_);
     CHECK(res_vec.size() == residual_size_);
     Eigen::Map<Eigen::VectorXd> residuals_eigen(residuals, residual_size_);
     residuals_eigen =
