@@ -2374,8 +2374,6 @@ void VIMap::getAllLidarVertexIdsInMissionAlongGraph(
       vertices->push_back(vertex_id);
     }
   }
-  LOG(INFO) << "Number of vertices in mission " << mission_id.hexString()
-            << ": " << vertices->size();
 }
 
 void VIMap::getAllVertexIdsAlongGraphsSortedByTimestamp(

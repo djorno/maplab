@@ -29,10 +29,12 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
     residual_.resize(num_features_);
     uk_.resize(num_features_);
     sig_transformed_.resize(num_features_);
+    residuals_per_pose_.resize(num_features_);
 
     // subdivide voxhess into atoms
     for (size_t i = 0; i < num_features_; i++) {
       voxhess_atoms_.push_back(VoxHessAtom(voxhess, i));
+      residuals_per_pose_[i].resize(voxhess_atoms_[i].sig_origin.size());
     }
     LOG(INFO) << "num features in BEC: " << num_features_;
   }
@@ -56,11 +58,12 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
       bool evaluate_jacobians, bool new_evaluation_point) final {
     if (new_evaluation_point) {
       for (size_t i = 0; i < num_features_; i++) {
-        std::vector<double> residuals =
-            voxhess_atoms_[i].evaluate_residuals_per_pose(
-                xs_, sig_transformed_[i], lmbd_[i], U_[i], T_I_S_, T_G_M_);
-        residuals_per_pose_.push_back(residuals);
-        double res = residuals.back();
+        std::vector<double> residual_single_feature;
+        residual_single_feature.resize(voxhess_atoms_[i].sig_origin.size());
+        double res = voxhess_atoms_[i].evaluate_residuals_per_pose(
+            xs_, sig_transformed_[i], residual_single_feature, lmbd_[i], U_[i],
+            T_I_S_, T_G_M_);
+        residuals_per_pose_[i] = residual_single_feature;
         residual_[i] = res;
         uk_[i] = U_[i].col(0);
       }
@@ -89,6 +92,7 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
   const std::vector<double> get_residuals_per_pose(
       const std::vector<std::pair<size_t, size_t>>& feature_index) const {
     std::vector<double> res_vec;
+    res_vec.reserve(feature_index.size());
     for (const auto& pair : feature_index) {
       size_t feat_ind = pair.first;
       size_t pose_ind = pair.second;
@@ -98,6 +102,7 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
           << pose_ind;
       res_vec.push_back(residuals_per_pose_[feat_ind][pose_ind]);
     }
+    return res_vec;
   }
 
   const std::vector<double> get_accum_res_for_features(

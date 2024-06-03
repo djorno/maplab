@@ -23,16 +23,12 @@ bool BALMErrorTerm::Evaluate(
   CHECK(evaluation_callback_ != nullptr);
   CHECK(parameters != nullptr);
 
-  if (residuals) {
-    std::vector<double> res_vec =
-        evaluation_callback_->get_residuals_per_pose(feature_index_);
-    CHECK(res_vec.size() == residual_size_);
-    Eigen::Map<Eigen::VectorXd> residuals_eigen(residuals, residual_size_);
-    residuals_eigen =
-        Eigen::Map<const Eigen::VectorXd>(res_vec.data(), residual_size_);
-  } else {
-    LOG(WARNING) << "Residuals not set";
-  }
+  std::vector<double> res_vec =
+      evaluation_callback_->get_residuals_per_pose(feature_index_);
+  CHECK(res_vec.size() == residual_size_);
+  Eigen::Map<Eigen::VectorXd> residuals_eigen(residuals, residual_size_);
+  residuals_eigen =
+      Eigen::Map<const Eigen::VectorXd>(res_vec.data(), residual_size_);
 
   if (jacobians) {
     // Unpack parameter blocks.
@@ -103,7 +99,7 @@ bool BALMErrorTerm::Evaluate(
 
       const Eigen::Matrix<double, 6, 1>& jjt = Auk.transpose() * uk;
       Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_G_S =
-          coe * jjt.transpose();
+          ni * jjt.transpose();
 
       ////////////// TRANSFORM JACOBIAN TO T_M_I //////////////////
       Eigen::Matrix<double, 3, 3> J_p_M_S_wrt_p_M_I =

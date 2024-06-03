@@ -358,9 +358,6 @@ void addLidarToMap(
   pose_graph::VertexIdList lidar_vertex_ids;
   vi_map.getAllLidarVertexIdsInMissionAlongGraph(mission_id, &lidar_vertex_ids);
 
-  LOG(INFO) << "Number of normal vertices: " << normal_vertex_ids.size();
-  LOG(INFO) << "Number of all vertices: " << all_vertex_ids.size();
-  LOG(INFO) << "Number of lidar vertices: " << lidar_vertex_ids.size();
   CHECK(
       normal_vertex_ids.size() + lidar_vertex_ids.size() ==
       all_vertex_ids.size());

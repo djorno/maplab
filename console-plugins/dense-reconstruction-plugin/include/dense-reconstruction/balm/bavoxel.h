@@ -149,7 +149,6 @@ class VoxHess {
           umumT += 2.0 / (lmbd[kk] - lmbd[i]) * u[i] * u[i].transpose();
         }
       }
-      LOG(INFO) << sig_orig.size();
       for (size_t sig_i = 0; sig_i < sig_orig.size(); ++sig_i) {
         Eigen::Matrix3d Pi = sig_orig[sig_i].P;
         Eigen::Vector3d vi = sig_orig[sig_i].v;
@@ -459,7 +458,7 @@ class BALM2 {
     bool is_calc_hess = true;
     aslam::TransformationVector x_stats_temp = x_stats;
 
-    for (int i = 0; i < 1; i++) {
+    for (int i = 0; i < 30; i++) {
       if (is_calc_hess) {
         residual1 = divide_thread(x_stats, voxhess, Hess, JacT);
         // Hess = JacT * JacT.transpose();
@@ -475,7 +474,8 @@ class BALM2 {
         x_stats_temp[j].getPosition() =
             x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
       }
-      double q1 = 0.5 * dxi.dot(u * D * dxi - JacT);
+      // double q1 = 0.5 * dxi.dot(u * D * dxi - JacT);
+      double q1 = 1;
 
       residual2 = only_residual(x_stats_temp, voxhess);
 
@@ -491,7 +491,8 @@ class BALM2 {
         v = 2;
         q = 1 - pow(2 * q - 1, 3);
         constexpr double kOneThird = 1.0 / 3.0;
-        u *= (q < kOneThird ? kOneThird : q);
+        // u *= (q < kOneThird ? kOneThird : q);
+        u *= kOneThird;
         is_calc_hess = true;
       } else {
         u = u * v;
