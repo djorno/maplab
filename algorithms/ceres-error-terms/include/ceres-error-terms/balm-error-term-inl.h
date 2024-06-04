@@ -2,6 +2,7 @@
 #define CERES_ERROR_TERMS_BALM_ERROR_TERM_INL_H_
 
 #include <ceres-error-terms/balm-voxhess.h>
+#include <cmath>
 #include <maplab-common/geometry.h>
 #include <maplab-common/quaternion-math.h>
 
@@ -23,12 +24,57 @@ bool BALMErrorTerm::Evaluate(
   CHECK(evaluation_callback_ != nullptr);
   CHECK(parameters != nullptr);
 
-  std::vector<double> res_vec =
-      evaluation_callback_->get_residuals_per_pose(feature_index_);
-  CHECK(res_vec.size() == residual_size_);
+  // compute the residuals
+  std::vector<Eigen::Vector3d> uk_ij_vec;
+  std::vector<Eigen::Vector3d> pBar_ij_vec;
+
+  const std::vector<Eigen::Vector3d> uk_i_vec =
+      evaluation_callback_->get_uk_i(feature_index_);
+  const std::vector<Eigen::Vector3d> pBar_i_vec =
+      evaluation_callback_->get_vBar_i(feature_index_);
+
+  evaluation_callback_->evaluate_single_plane(
+      feature_index_, parameters[kIdxPose], uk_ij_vec, pBar_ij_vec);
+  // get residual vector
+  CHECK(residual_size_ == feature_index_.size() * 6);
   Eigen::Map<Eigen::VectorXd> residuals_eigen(residuals, residual_size_);
-  residuals_eigen =
-      Eigen::Map<const Eigen::VectorXd>(res_vec.data(), residual_size_);
+
+  for (size_t i = 0; i < feature_index_.size(); i++) {
+    // CHECK_GE(uk_i_vec[i].dot(uk_ij_vec[i]), -1)
+    //     << "uk_i: " << uk_i_vec[i].norm() << " uk_ij: " <<
+    //     uk_ij_vec[i].norm();
+    // CHECK_LE(uk_i_vec[i].dot(uk_ij_vec[i]), 1)
+    //     << "uk_i: " << uk_i_vec[i].norm() << " uk_ij: " <<
+    //     uk_ij_vec[i].norm();
+    const double N_ij = evaluation_callback_->get_N_ij(
+        feature_index_[i].first, feature_index_[i].second);
+    const double N_i = evaluation_callback_->get_N_i(feature_index_[i].first);
+    if (N_i == 0) {
+      LOG(WARNING) << "N_i is zero";
+      residuals_eigen.segment<6>(i * 6).setZero();
+      continue;
+    }
+    CHECK(N_ij / N_i <= 1.0) << "N_ij/N_i: " << N_ij / N_i;
+
+    Eigen::Vector3d r_q = common::skew(uk_i_vec[i]) * uk_ij_vec[i];
+    //  *
+    //                       acos(uk_i_vec[i].dot(uk_ij_vec[i]));
+    Eigen::Vector3d r_p =  // uk_i_vec[i] * uk_i_vec[i].transpose() *
+        (pBar_ij_vec[i] - pBar_i_vec[i]);
+    CHECK(i * 6 + 3 < residual_size_);
+    // CHECK(r_q.allFinite()) << "r_q: " << r_q;
+    // CHECK(r_p.allFinite()) << "r_p: " << r_p;
+    if (!r_q.allFinite()) {
+      r_q.setZero();
+      LOG(WARNING) << "r_q is not finite";
+    }
+    if (!r_p.allFinite()) {
+      r_p.setZero();
+      LOG(WARNING) << "r_p is not finite";
+    }
+    residuals_eigen.segment<3>(i * 6) = r_q;
+    residuals_eigen.segment<3>(i * 6 + 3) = r_p;
+  }
 
   if (jacobians) {
     // Unpack parameter blocks.
@@ -60,55 +106,45 @@ bool BALMErrorTerm::Evaluate(
       size_t sig_i = pair.second;
       CHECK(feat_num < evaluation_callback_->get_num_features());
       CHECK(sig_i < evaluation_callback_->get_sig_origin(feat_num).size());
+      const double N_ij = evaluation_callback_->get_N_ij(feat_num, sig_i);
+      const double N_i = evaluation_callback_->get_N_i(feat_num);
+      const Eigen::Vector3d uk_i = uk_i_vec[res_number];
+      const Eigen::Vector3d uk_ij = uk_ij_vec[res_number];
+      const Eigen::Vector3d pBar_i = pBar_i_vec[res_number];
+      const Eigen::Vector3d pBar_ij = pBar_ij_vec[res_number];
+      ///////// computation of the Jacobian of r_p wrt T_G_S
+      Eigen::Matrix<double, 3, 3> J_r_p_wrt_q_G_S = common::skew(pBar_ij);
+      Eigen::Matrix<double, 3, 3> J_r_p_wrt_p_G_S =
+          Eigen::Matrix3d::Identity();  // uk_i * uk_i.transpose();
 
-      double coe = evaluation_callback_->get_coeff(feat_num);
-      Eigen::Vector3d uk = evaluation_callback_->get_uk(feat_num);
-      const Eigen::Vector3d& vBar = evaluation_callback_->get_vBar(feat_num);
-      // LOG(INFO) << "CP 4";
+      ////////// computation of the Jacobian of r_q wrt T_G_S
+      // Eigen::Matrix<double, 3, 3> J_r_q_wrt_q_G_S =
+      //     (-acos(uk_i.dot(uk_ij)) * common::skew(uk_i) +
+      //      common::skew(uk_i) * uk_ij * uk_i.transpose() *
+      //          (1 / (1 - std::pow(uk_i.dot(uk_ij), 2)))) *
+      //     common::skew(uk_ij);
+      Eigen::Matrix<double, 3, 3> J_r_q_wrt_q_G_S =
+          -common::skew(uk_i) * common::skew(uk_ij);
+      Eigen::Matrix<double, 3, 3> J_r_q_wrt_p_G_S = Eigen::Matrix3d::Zero();
 
-      Eigen::Matrix3d Pi =
-          evaluation_callback_->get_sig_origin(feat_num)[sig_i].P;
-      Eigen::Vector3d vi =
-          evaluation_callback_->get_sig_origin(feat_num)[sig_i].v;
-      size_t ni = evaluation_callback_->get_sig_origin(feat_num)[sig_i].N;
-      // LOG(INFO) << "CP 5";
-      Eigen::Matrix3d Ri = T_G_S.getRotationMatrix();
-
-      Eigen::Matrix3d vihat = common::skew(vi);
-      Eigen::Vector3d RiTuk = Ri.transpose() * uk;
-      Eigen::Matrix3d RiTukhat = common::skew(RiTuk);
-      // LOG(INFO) << "CP 6";
-
-      Eigen::Vector3d PiRiTuk = Pi * RiTuk;
-
-      Eigen::Vector3d ti_v = T_G_S.getPosition() - vBar;
-      double ukTti_v = uk.dot(ti_v);
-
-      Eigen::Matrix3d combo1 = hat(PiRiTuk) + vihat * ukTti_v;
-      Eigen::Vector3d combo2 = Ri * vi + ni * ti_v;
-
-      int NN = evaluation_callback_->get_NN(feat_num);
-
-      Eigen::Matrix<double, 3, 6> Auk;
-      Auk.block<3, 3>(0, 0) =
-          (Ri * Pi + ti_v * vi.transpose()) * RiTukhat - Ri * combo1;
-      Auk.block<3, 3>(0, 3) = combo2 * uk.transpose() +
-                              combo2.dot(uk) * Eigen::Matrix3d::Identity();
-      Auk /= NN;
-      // LOG(INFO) << "CP 7";
-
-      const Eigen::Matrix<double, 6, 1>& jjt = Auk.transpose() * uk;
-      Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_G_S =
-          ni * jjt.transpose();
-
+      Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_G_S;
+      J_res_wrt_T_G_S.setZero();
+      J_res_wrt_T_G_S.block<3, 3>(0, 0) = J_r_q_wrt_q_G_S;
+      J_res_wrt_T_G_S.block<3, 3>(0, 3) = J_r_q_wrt_p_G_S;
+      J_res_wrt_T_G_S.block<3, 3>(3, 3) = J_r_p_wrt_p_G_S;
+      J_res_wrt_T_G_S.block<3, 3>(3, 0) = J_r_p_wrt_q_G_S;
       ////////////// TRANSFORM JACOBIAN TO T_M_I //////////////////
       Eigen::Matrix<double, 3, 3> J_p_M_S_wrt_p_M_I =
           Eigen::Matrix3d::Identity();
-      Eigen::Matrix<double, 3, 3> J_p_M_S_wrt_q_M_I =
-          common::skew(T_M_I.getRotationMatrix() * T_I_S.getPosition());
+      Eigen::Matrix<double, 3, 3> J_p_M_S_wrt_q_M_I = R_S_I;
+      // common::skew(T_M_I.getRotationMatrix() * T_I_S.getPosition());
 
+      //   Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_p_M_I =
+      //   Eigen::Matrix3d::Zero(); Eigen::Matrix<double, 3, 3>
+      //   J_q_M_S_wrt_q_M_I = R_S_I;
       Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_p_M_I = Eigen::Matrix3d::Zero();
-      Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_q_M_I = R_S_I;
+      Eigen::Matrix<double, 3, 3> J_q_M_S_wrt_q_M_I =
+          -common::skew(T_M_I.getRotationMatrix() * T_I_S.getPosition());
 
       Eigen::Matrix<double, 6, 6> J_T_M_S_wrt_T_M_I =
           Eigen::Matrix<double, 6, 6>::Zero();
@@ -117,11 +153,28 @@ bool BALMErrorTerm::Evaluate(
       J_T_M_S_wrt_T_M_I.block<3, 3>(3, 0) = J_p_M_S_wrt_q_M_I;
       J_T_M_S_wrt_T_M_I.block<3, 3>(0, 3) = J_q_M_S_wrt_p_M_I;
 
+      Eigen::Matrix<double, 3, 3> J_r_p_wrt_q_M_I =
+          J_r_p_wrt_q_G_S * J_p_M_S_wrt_q_M_I;
+      Eigen::Matrix<double, 3, 3> J_r_p_wrt_p_M_I =
+          J_r_p_wrt_p_G_S * J_p_M_S_wrt_p_M_I;
+      Eigen::Matrix<double, 3, 3> J_r_q_wrt_q_M_I =
+          J_r_q_wrt_q_G_S * J_q_M_S_wrt_q_M_I;
+      Eigen::Matrix<double, 3, 3> J_r_q_wrt_p_M_I =
+          J_r_q_wrt_p_G_S * J_q_M_S_wrt_p_M_I;
+
+      // Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_M_I =
+      //     J_res_wrt_T_G_S * J_T_M_S_wrt_T_M_I;
       Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_M_I =
-          J_res_wrt_T_G_S * J_T_M_S_wrt_T_M_I;
+          Eigen::Matrix<double, balmblocks::kResidualSize, 6>::Zero();
+      J_res_wrt_T_M_I.block<3, 3>(0, 0) = J_r_q_wrt_q_M_I;
+      J_res_wrt_T_M_I.block<3, 3>(0, 3) = J_r_q_wrt_p_M_I;
+      J_res_wrt_T_M_I.block<3, 3>(3, 3) = J_r_p_wrt_p_M_I;
+      J_res_wrt_T_M_I.block<3, 3>(3, 0) = J_r_p_wrt_q_M_I;
+
       ////////////////////////////////////////////////////////////
       CHECK(res_number < residual_size_);
-      J_res_full_wrt_T_M_I.row(res_number) = J_res_wrt_T_G_S;
+      J_res_full_wrt_T_M_I.block<6, 6>(
+          balmblocks::kResidualSize * res_number, 0) = J_res_wrt_T_G_S;
       //   LOG(INFO) << "Jac of i: " << i_ << " feat: " << feat_num
       //             << "jac =" << J_res_wrt_T_G_S;
       res_number++;

@@ -501,11 +501,9 @@ double VoxHessAtom::evaluate_residual(
   return coeff * lmbd[0];
 }
 
-double VoxHessAtom::evaluate_residuals_per_pose(
+Eigen::Vector3d VoxHessAtom::evaluate_plane(
     const std::vector<double*>& xs, PointCluster& sig_mutable,
-    std::vector<double>& pose_residuals, Eigen::Vector3d& lmbd,
-    Eigen::Matrix3d& U, const aslam::Transformation& T_I_S,
-    const aslam::Transformation& T_G_M) {
+    const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M) {
   sig_mutable = sig;
   for (size_t sig_i = 0; sig_i < sig_origin.size(); ++sig_i) {
     const size_t i = index[sig_i];
@@ -524,113 +522,25 @@ double VoxHessAtom::evaluate_residuals_per_pose(
   Eigen::Matrix3d cmt = sig_mutable.P / sig_mutable.N - vBar * vBar.transpose();
 
   Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(cmt);
-  lmbd = saes.eigenvalues();
-  U = saes.eigenvectors();
-
-  CHECK(coeff * lmbd[0] >= 0.0)
-      << "Negative residual: " << coeff * lmbd[0] << " coeff: " << coeff
-      << " lmbd[0]: " << lmbd[0];
-  const double total_residual = coeff * lmbd[0];
-
-  // find the residuals for each pose
-  PointCluster sig_temp;
-  Eigen::Vector3d uk = U.col(0);
-  for (size_t sig_i = 0; sig_i < sig_origin.size(); ++sig_i) {
-    const size_t i = index[sig_i];
-
-    CHECK(xs[i] != nullptr);
-    Eigen::Map<const Eigen::Matrix<double, 7, 1>> xs_i(xs[i]);
-
-    // LOG(INFO) << "x_i = " << xs_i.transpose();
-    // from active to passive from JPL to Hamilton --> no inversion needed
-    Eigen::Quaterniond q_MI(xs_i.block<4, 1>(0, 0));
-    Eigen::Vector3d p_MI = xs_i.block<3, 1>(4, 0);
-    aslam::Transformation T_M_I(q_MI, p_MI);
-    aslam::Transformation T_G_S = T_G_M * T_M_I * T_I_S;
-    // BALM operates in the sensor frame, not inertial frame.
-    sig_temp = sig_origin[sig_i].transform(T_G_S);
-
-    Eigen::Vector3d vBar_mono = sig_temp.v;
-
-    const Eigen::Matrix3d cmt_temp = sig_temp.P - vBar_mono * vBar.transpose() -
-                                     vBar * vBar_mono.transpose() +
-                                     sig_temp.N * vBar * vBar.transpose();
-    double cost_temp = uk.transpose() * cmt_temp * uk;
-    CHECK(cost_temp >= -0.00000001)
-        << "Negative residual: " << cost_temp << " uk: " << uk.transpose()
-        << " cmt_temp: " << cmt_temp << " sig_temp.P: " << sig_temp.P
-        << " vBar_mono: " << vBar_mono.transpose()
-        << " vBar: " << vBar.transpose();
-    CHECK(sig_i < pose_residuals.size())
-        << "sig_i: " << sig_i << " size: " << pose_residuals.size();
-    pose_residuals[sig_i] = cost_temp;
-    // LOG(INFO) << "pose_residuals[" << sig_i << "]: " <<
-    // pose_residuals[sig_i];
-  }
-  double pose_residual_accum =
-      std::accumulate(pose_residuals.begin(), pose_residuals.end(), 0.0);
-
-  // LOG(INFO) << "pose_residual_accum: " << pose_residual_accum;
-  // LOG(INFO) << "total_residual: " << coeff * lmbd[0];
-
-  return coeff * lmbd[0];
+  // lmbd = saes.eigenvalues();
+  return saes.eigenvectors().col(0);
 }
 
-// std::vector<double> VoxHessAtom::evaluate_residuals_per_pose(
-//     const std::vector<double*>& xs, PointCluster& sig_mutable,
-//     Eigen::Vector3d& lmbd, Eigen::Matrix3d& U,
-//     const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M) {
-//   std::vector<double> residuals(sig_origin.size() + 1, 0);
-//   LOG(INFO) << "sig_origin.size(): " << sig_origin.size();
-//   for (size_t dropout_ind = 0; dropout_ind <= sig_origin.size();
-//        ++dropout_ind) {
-//     sig_mutable = sig;
-//     for (size_t sig_i = 0; sig_i < sig_origin.size(); ++sig_i) {
-//       if (sig_i == dropout_ind) {
-//         continue;
-//       }
-//       const size_t i = index[sig_i];
-//       CHECK(xs[i] != nullptr);
-//       Eigen::Map<const Eigen::Matrix<double, 7, 1>> xs_i(xs[i]);
-//       // LOG(INFO) << "x_i = " << xs_i.transpose();
-//       // from active to passive from JPL to Hamilton --> no inversion needed
-//       Eigen::Quaterniond q_MI(xs_i.block<4, 1>(0, 0));
-//       Eigen::Vector3d p_MI = xs_i.block<3, 1>(4, 0);
-//       aslam::Transformation T_M_I(q_MI, p_MI);
-//       aslam::Transformation T_G_S = T_G_M * T_M_I * T_I_S;
-//       // BALM operates in the sensor frame, not inertial frame.
-//       sig_mutable += sig_origin[sig_i].transform(T_G_S);
-//     }
+Eigen::Vector3d VoxHessAtom::evaluate_plane_per_pose(
+    const double* x_i_ptr, PointCluster& sig_mutable, const size_t sig_i,
+    const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M) {
+  Eigen::Map<const Eigen::Matrix<double, 7, 1>> x_i(x_i_ptr);
+  const Eigen::Quaterniond q_MI(x_i.block<4, 1>(0, 0));
+  const Eigen::Vector3d p_MI = x_i.block<3, 1>(4, 0);
+  const aslam::Transformation T_M_I(q_MI, p_MI);
+  const aslam::Transformation T_G_S = T_G_M * T_M_I * T_I_S;
+  sig_mutable += sig_origin[sig_i].transform(T_G_S);
 
-//     Eigen::Vector3d vBar = sig_mutable.v / sig_mutable.N;
-//     Eigen::Matrix3d cmt =
-//         sig_mutable.P / sig_mutable.N - vBar * vBar.transpose();
+  Eigen::Vector3d vBar = sig_mutable.v / sig_mutable.N;
+  Eigen::Matrix3d cmt = sig_mutable.P / sig_mutable.N - vBar * vBar.transpose();
 
-//     Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(cmt);
-//     lmbd = saes.eigenvalues();
-//     U = saes.eigenvectors();
-//     if (dropout_ind < sig_origin.size()) {
-//       residuals[dropout_ind] = -coeff * lmbd[0];
-//     } else {
-//       const double final_res = coeff * lmbd[0];
-//       std::transform(
-//           residuals.begin(), residuals.end(), residuals.begin(),
-//           [final_res](double res) {
-//             LOG(INFO) << "res: " << res << " final_res: " << final_res;
-//             LOG(INFO) << "sum: " << (res + final_res);
-//             return (res + final_res);
-//           });
-//       // not necessary, but for clarity
-//       CHECK(residuals.back() == final_res);
-//     }
-//   }
-//   CHECK(std::all_of(residuals.begin(), residuals.end(), [](double num) {
-//     if (num == 0.0) {
-//       LOG(WARNING) << "contribution is 0.0";
-//     }
-//     return num >= 0.0;
-//   }));
-//   return residuals;
-// }
+  Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(cmt);
+  return saes.eigenvectors().col(0);
+}
 
 }  // namespace ceres_error_terms

@@ -39,38 +39,39 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
     LOG(INFO) << "num features in BEC: " << num_features_;
   }
 
-  // void PrepareForEvaluation(
-  //     bool evaluate_jacobians, bool new_evaluation_point) final {
-  //   if (new_evaluation_point) {
-  //     for (size_t i = 0; i < num_features_; i++) {
-  //       double res = voxhess_atoms_[i].evaluate_residual(
-  //           xs_, sig_transformed_[i], lmbd_[i], U_[i], T_I_S_, T_G_M_);
-  //       residual_[i] = res;
-  //       uk_[i] = U_[i].col(0);
-  //     }
-  //   }
-
-  //   LOG(INFO) << "Total residual sum: "
-  //             << std::accumulate(residual_.begin(), residual_.end(), 0.0);
-  // }
-
   void PrepareForEvaluation(
-      bool evaluate_jacobians, bool new_evaluation_point) final {
+      bool evaluate_jacobians, bool new_evaluation_point) {
+    LOG(INFO) << "PrepareForEvaluation";
     if (new_evaluation_point) {
+      LOG(INFO) << "new_evaluation_point";
+      double balm_residual = 0.0;
       for (size_t i = 0; i < num_features_; i++) {
-        std::vector<double> residual_single_feature;
-        residual_single_feature.resize(voxhess_atoms_[i].sig_origin.size());
-        double res = voxhess_atoms_[i].evaluate_residuals_per_pose(
-            xs_, sig_transformed_[i], residual_single_feature, lmbd_[i], U_[i],
-            T_I_S_, T_G_M_);
-        residuals_per_pose_[i] = residual_single_feature;
-        residual_[i] = res;
-        uk_[i] = U_[i].col(0);
+        uk_[i] = voxhess_atoms_[i].evaluate_plane(
+            xs_, sig_transformed_[i], T_I_S_, T_G_M_);
+        balm_residual += voxhess_atoms_[i].evaluate_residual(
+            xs_, sig_transformed_[i], lmbd_[i], U_[i], T_I_S_, T_G_M_);
       }
+      LOG(INFO) << "balm_residual: " << balm_residual;
     }
+  }
 
-    LOG(INFO) << "Total residual sum: "
-              << std::accumulate(residual_.begin(), residual_.end(), 0.0);
+  void evaluate_single_plane(
+      const std::vector<std::pair<size_t, size_t>>& feature_index,
+      const double* param, std::vector<Eigen::Vector3d>& uk_ij,
+      std::vector<Eigen::Vector3d>& pBar_ij) {
+    int i = 0;
+    uk_ij.resize(feature_index.size());
+    pBar_ij.resize(feature_index.size());
+    for (const auto& pair : feature_index) {
+      size_t feat_ind = pair.first;
+      size_t pose_ind = pair.second;
+
+      PointCluster sig_mutable;
+      uk_ij[i] = voxhess_atoms_[feat_ind].evaluate_plane_per_pose(
+          param, sig_mutable, pose_ind, T_I_S_, T_G_M_);
+      pBar_ij[i] = sig_mutable.v / sig_mutable.N;
+      i++;
+    }
   }
 
   const double get_residual(const size_t feat_ind) const {
@@ -144,12 +145,38 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
     return uk_[feat_ind];
   }
 
+  const std::vector<Eigen::Vector3d> get_uk_i(
+      const std::vector<std::pair<size_t, size_t>> feature_index) const {
+    std::vector<Eigen::Vector3d> uk_i;
+    uk_i.reserve(feature_index.size());
+    for (const auto& pair : feature_index) {
+      size_t feat_ind = pair.first;
+      uk_i.push_back(uk_[feat_ind]);
+    }
+    return uk_i;
+  }
+
   const Eigen::Vector3d get_vBar(const size_t feat_ind) const {
     return sig_transformed_[feat_ind].v / sig_transformed_[feat_ind].N;
   }
 
-  const int get_NN(const size_t feat_ind) const {
+  const std::vector<Eigen::Vector3d> get_vBar_i(
+      const std::vector<std::pair<size_t, size_t>> feature_index) const {
+    std::vector<Eigen::Vector3d> vBar;
+    vBar.reserve(feature_index.size());
+    for (const auto& pair : feature_index) {
+      size_t feat_ind = pair.first;
+      vBar.push_back(get_vBar(feat_ind));
+    }
+    return vBar;
+  }
+
+  const double get_N_i(const size_t feat_ind) const {
     return sig_transformed_[feat_ind].N;
+  }
+
+  const double get_N_ij(const size_t feat_ind, const size_t pose_ind) const {
+    return voxhess_atoms_[feat_ind].sig_origin[pose_ind].N;
   }
 
  private:
@@ -177,7 +204,7 @@ class BALMErrorTerm : public ceres::CostFunction {
         feature_index_(feature_index),
         T_I_S_(evaluation_callback->get_T_I_S()),
         T_G_M_(evaluation_callback->get_T_G_M()),
-        residual_size_(feature_index.size()) {
+        residual_size_(feature_index.size() * balmblocks::kResidualSize) {
     CHECK_NOTNULL(evaluation_callback.get());
     set_num_residuals(residual_size_);
     std::vector<int32_t>* parameter_block_sizes =

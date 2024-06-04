@@ -577,11 +577,11 @@ int addBALMTerms(
               i, feature_index));
       // add the residual block to the problem
       double* vertex_q_IM__M_p_MI_JPL = xs[i];
-      std::shared_ptr<ceres::LossFunction> loss_function(
-          new ceres::LossFunctionWrapper(
-              new ceres::HuberLoss(1.0), ceres::TAKE_OWNERSHIP));
+      //   std::shared_ptr<ceres::LossFunction> loss_function(
+      //       new ceres::LossFunctionWrapper(
+      //           new ceres::HuberLoss(1.0), ceres::TAKE_OWNERSHIP));
       problem->getProblemInformationMutable()->addResidualBlock(
-          ceres_error_terms::ResidualType::kBALM, balm_term_cost, loss_function,
+          ceres_error_terms::ResidualType::kBALM, balm_term_cost, nullptr,
           {vertex_q_IM__M_p_MI_JPL});
       ++num_residuals_added;
 
@@ -589,6 +589,10 @@ int addBALMTerms(
           vertices[i]);
       problem->getProblemInformationMutable()->setParameterization(
           vertex_q_IM__M_p_MI_JPL, parameterizations.pose_parameterization);
+      if (i > 10) {
+        problem->getProblemInformationMutable()->setParameterBlockConstant(
+            vertex_q_IM__M_p_MI_JPL);
+      }
     }
   }
   return num_residuals_added;
