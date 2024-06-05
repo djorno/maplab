@@ -54,6 +54,11 @@ namespace ceres_error_terms {
 class OctoTreeNode;
 typedef std::unordered_map<resources::VoxelPosition, OctoTreeNode*> SurfaceMap;
 
+struct BALMPlane {
+  Eigen::Vector3d n;  // normal
+  Eigen::Vector3d p;  // point on plane
+};
+
 class PointCluster {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -116,12 +121,12 @@ class VoxHessAtom {
       Eigen::Vector3d& lmbd, Eigen::Matrix3d& U,
       const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M);
 
-  Eigen::Vector3d evaluate_plane(
-      const std::vector<double*>& xs, PointCluster& sig_mutable,
+  void evaluate_plane(
+      const std::vector<double*>& xs, BALMPlane& plane,
       const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M);
 
-  Eigen::Vector3d evaluate_plane_per_pose(
-      const double* x_i_ptr, PointCluster& sig_mutable, const size_t sig_i,
+  void evaluate_plane_per_pose(
+      const double* x_i_ptr, BALMPlane& plane, const size_t sig_i,
       const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M);
 };
 

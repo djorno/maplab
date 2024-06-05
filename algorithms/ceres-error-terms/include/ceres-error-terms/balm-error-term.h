@@ -27,9 +27,9 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
     lmbd_.resize(num_features_);
     U_.resize(num_features_);
     residual_.resize(num_features_);
-    uk_.resize(num_features_);
     sig_transformed_.resize(num_features_);
     residuals_per_pose_.resize(num_features_);
+    feature_planes_.resize(num_features_);
 
     // subdivide voxhess into atoms
     for (size_t i = 0; i < num_features_; i++) {
@@ -46,30 +46,32 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
       LOG(INFO) << "new_evaluation_point";
       double balm_residual = 0.0;
       for (size_t i = 0; i < num_features_; i++) {
-        uk_[i] = voxhess_atoms_[i].evaluate_plane(
-            xs_, sig_transformed_[i], T_I_S_, T_G_M_);
+        voxhess_atoms_[i].evaluate_plane(
+            xs_, feature_planes_[i], T_I_S_, T_G_M_);
         balm_residual += voxhess_atoms_[i].evaluate_residual(
             xs_, sig_transformed_[i], lmbd_[i], U_[i], T_I_S_, T_G_M_);
       }
       LOG(INFO) << "balm_residual: " << balm_residual;
     }
+    evaluated_ = true;
+  }
+
+  bool prepared_for_evaluation() const {
+    return evaluated_;
   }
 
   void evaluate_single_plane(
       const std::vector<std::pair<size_t, size_t>>& feature_index,
-      const double* param, std::vector<Eigen::Vector3d>& uk_ij,
-      std::vector<Eigen::Vector3d>& pBar_ij) {
+      const double* pose, std::vector<BALMPlane>& planes) {
     int i = 0;
-    uk_ij.resize(feature_index.size());
-    pBar_ij.resize(feature_index.size());
+    CHECK_EQ(feature_index.size(), planes.size());
     for (const auto& pair : feature_index) {
       size_t feat_ind = pair.first;
       size_t pose_ind = pair.second;
 
       PointCluster sig_mutable;
-      uk_ij[i] = voxhess_atoms_[feat_ind].evaluate_plane_per_pose(
-          param, sig_mutable, pose_ind, T_I_S_, T_G_M_);
-      pBar_ij[i] = sig_mutable.v / sig_mutable.N;
+      voxhess_atoms_[feat_ind].evaluate_plane_per_pose(
+          pose, planes[i], pose_ind, T_I_S_, T_G_M_);
       i++;
     }
   }
@@ -142,7 +144,7 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
   }
 
   const Eigen::Vector3d get_uk(const size_t feat_ind) const {
-    return uk_[feat_ind];
+    return feature_planes_[feat_ind].n;
   }
 
   const std::vector<Eigen::Vector3d> get_uk_i(
@@ -151,13 +153,13 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
     uk_i.reserve(feature_index.size());
     for (const auto& pair : feature_index) {
       size_t feat_ind = pair.first;
-      uk_i.push_back(uk_[feat_ind]);
+      uk_i.push_back(feature_planes_[feat_ind].n);
     }
     return uk_i;
   }
 
   const Eigen::Vector3d get_vBar(const size_t feat_ind) const {
-    return sig_transformed_[feat_ind].v / sig_transformed_[feat_ind].N;
+    return feature_planes_[feat_ind].p;
   }
 
   const std::vector<Eigen::Vector3d> get_vBar_i(
@@ -188,9 +190,10 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
   const std::vector<double*> xs_;
   std::vector<Eigen::Vector3d> lmbd_;
   std::vector<Eigen::Matrix3d> U_;
-  std::vector<Eigen::Vector3d> uk_;
   const aslam::Transformation T_I_S_;
   const aslam::Transformation T_G_M_;
+  std::vector<BALMPlane> feature_planes_;
+  bool evaluated_ = false;
 };
 
 class BALMErrorTerm : public ceres::CostFunction {

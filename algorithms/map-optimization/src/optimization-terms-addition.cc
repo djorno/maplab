@@ -535,6 +535,9 @@ int addBALMTerms(
     const aslam::Transformation& T_G_M =
         map->getMissionBaseFrameForMission(mission_id).get_T_G_M();
 
+    LOG(INFO) << "T_I_S: " << T_I_S.getTransformationMatrix() << std::endl
+              << "T_G_M: " << T_G_M.getTransformationMatrix() << std::endl;
+
     // construct the evaluation callback for the current feature
     LOG(INFO) << "CP before eval callback construction";
     evaluation_callback_ptr->emplace_back(
@@ -589,7 +592,7 @@ int addBALMTerms(
           vertices[i]);
       problem->getProblemInformationMutable()->setParameterization(
           vertex_q_IM__M_p_MI_JPL, parameterizations.pose_parameterization);
-      if (i > 10) {
+      if (i > 3) {
         problem->getProblemInformationMutable()->setParameterBlockConstant(
             vertex_q_IM__M_p_MI_JPL);
       }

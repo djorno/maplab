@@ -235,6 +235,9 @@ class VoxHess {
       const std::vector<size_t>& index = *indices[a];
 
       PointCluster sig = *sig_vecs[a];
+      LOG(INFO) << "sig.N: " << sig.N;
+      LOG(INFO) << "sig.v: " << sig.v.transpose();
+      LOG(INFO) << "sig.P: " << sig.P;
       for (size_t sig_i = 0; sig_i < sig_orig.size(); ++sig_i) {
         const size_t i = index[sig_i];
         sig += sig_orig[sig_i].transform(xs[i]);
