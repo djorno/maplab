@@ -144,7 +144,7 @@ bool BALMErrorTerm::Evaluate(
           J_res_wrt_T_M_S * J_T_M_S_wrt_T_M_I;
 
       ////////////////////////////////////////////////////////////
-      CHECK(i * balmblocks::kResidualSize + 6 < residual_size_);
+      CHECK(i * balmblocks::kResidualSize + 6 <= residual_size_);
       J_res_full_wrt_T_M_I.block<6, 6>(balmblocks::kResidualSize * i, 0) =
           J_res_wrt_T_M_I;
     }
