@@ -592,10 +592,6 @@ int addBALMTerms(
           vertices[i]);
       problem->getProblemInformationMutable()->setParameterization(
           vertex_q_IM__M_p_MI_JPL, parameterizations.pose_parameterization);
-      if (i > 3) {
-        problem->getProblemInformationMutable()->setParameterBlockConstant(
-            vertex_q_IM__M_p_MI_JPL);
-      }
     }
   }
   return num_residuals_added;

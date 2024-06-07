@@ -113,8 +113,11 @@ class VoxHessAtom {
   const PointCluster& sig;
   const std::vector<PointCluster>& sig_origin;
   double coeff;
+  std::vector<BALMPlane> original_planes;
 
   VoxHessAtom(const VoxHess& voxhess, size_t& feature_index);
+
+  void generate_original_planes();
 
   double evaluate_residual(
       const std::vector<double*>& xs, PointCluster& sig_mutable,
@@ -123,10 +126,6 @@ class VoxHessAtom {
 
   void evaluate_plane(
       const std::vector<double*>& xs, BALMPlane& plane,
-      const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M);
-
-  void evaluate_plane_per_pose(
-      const double* x_i_ptr, BALMPlane& plane, const size_t sig_i,
       const aslam::Transformation& T_I_S, const aslam::Transformation& T_G_M);
 };
 

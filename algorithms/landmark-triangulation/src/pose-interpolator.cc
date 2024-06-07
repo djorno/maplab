@@ -10,8 +10,8 @@
 namespace landmark_triangulation {
 
 bool interpolateLinear(
-    const vi_map::VIMap& map, const vi_map::Vertex& vertex,
-    int64_t offset_ns, aslam::Transformation* T_inter) {
+    const vi_map::VIMap& map, const vi_map::Vertex& vertex, int64_t offset_ns,
+    aslam::Transformation* T_inter) {
   CHECK_NOTNULL(T_inter);
   // TODO(smauq): Implement interpolation also backwards
   CHECK_GT(offset_ns, 0);
@@ -22,7 +22,7 @@ bool interpolateLinear(
     return false;
   }
 
-  const vi_map::Vertex& next_vertex = map.getVertex(next_vertex_id);
+  const vi_map::Vertex& next_vertex = map.getAnyVertex(next_vertex_id);
 
   const int64_t t1 = vertex.getMinTimestampNanoseconds();
   const int64_t t2 = next_vertex.getMinTimestampNanoseconds();
@@ -56,7 +56,7 @@ void PoseInterpolator::buildListOfAllRequiredIMUMeasurements(
   ImuMeasurementBuffer imu_buffer;
   {
     const vi_map::ViwlsEdge& imu_edge =
-        map.getEdgeAs<vi_map::ViwlsEdge>(imu_edge_id);
+        map.getAnyEdgeAs<vi_map::ViwlsEdge>(imu_edge_id);
     const Eigen::Matrix<int64_t, 1, Eigen::Dynamic>& imu_timestamps =
         imu_edge.getImuTimestamps();
     const Eigen::Matrix<double, 6, Eigen::Dynamic>& imu_data =
@@ -168,7 +168,7 @@ void PoseInterpolator::computeRequestedPosesInRange(
   Eigen::Matrix<double, kStateSize, 1> current_state;
   Eigen::Matrix<double, kStateSize, 1> next_state;
 
-  const vi_map::Vertex& vertex_from = map.getVertex(vertex_begin_id);
+  const vi_map::Vertex& vertex_from = map.getAnyVertex(vertex_begin_id);
   const aslam::Transformation T_M_I = vertex_from.get_T_M_I();
 
   // Active to passive and direction switch, so no inversion.
@@ -277,12 +277,12 @@ void PoseInterpolator::getVertexToTimeStampMap(
 
   vertex_to_time_map->reserve(all_mission_vertices.size());
   for (const pose_graph::VertexId& vertex_id : all_mission_vertices) {
-    const vi_map::Vertex& vertex = map.getVertex(vertex_id);
+    const vi_map::Vertex& vertex = map.getAnyVertex(vertex_id);
     pose_graph::EdgeIdSet outgoing_edges;
     vertex.getOutgoingEdges(&outgoing_edges);
     pose_graph::EdgeId outgoing_imu_edge_id;
     for (const pose_graph::EdgeId& edge_id : outgoing_edges) {
-      if (map.getEdgeType(edge_id) == backbone_type) {
+      if (map.getAnyEdgeType(edge_id) == backbone_type) {
         outgoing_imu_edge_id = edge_id;
         break;
       }
@@ -295,7 +295,7 @@ void PoseInterpolator::getVertexToTimeStampMap(
     switch (backbone_type) {
       case pose_graph::Edge::EdgeType::kViwls: {
         const vi_map::ViwlsEdge& imu_edge =
-            map.getEdgeAs<vi_map::ViwlsEdge>(outgoing_imu_edge_id);
+            map.getAnyEdgeAs<vi_map::ViwlsEdge>(outgoing_imu_edge_id);
         const Eigen::Matrix<int64_t, 1, Eigen::Dynamic>& imu_timestamps =
             imu_edge.getImuTimestamps();
         if (imu_timestamps.cols() > 0) {
@@ -337,7 +337,7 @@ void PoseInterpolator::getVertexTimeStampVector(
 
   for (const pose_graph::VertexId& vertex_id : all_mission_vertices) {
     const int64_t vertex_timestamp =
-        map.getVertex(vertex_id).getMinTimestampNanoseconds();
+        map.getVertexTimestampNanoseconds(vertex_id);
     vertex_timestamps_nanoseconds->emplace_back(vertex_timestamp);
   }
 }
@@ -348,16 +348,17 @@ void PoseInterpolator::buildVertexToTimeList(
   CHECK_NOTNULL(vertices_and_time)->clear();
   // Get the outgoing edge of the vertex and its IMU data.
   pose_graph::VertexIdList all_mission_vertices;
-  map.getAllVertexIdsInMissionAlongGraph(mission_id, &all_mission_vertices);
+  map.getAllVertexIdsIncLidarInMissionAlongGraph(
+      mission_id, &all_mission_vertices);
 
   vertices_and_time->reserve(all_mission_vertices.size());
   for (const pose_graph::VertexId& vertex_id : all_mission_vertices) {
-    const vi_map::Vertex& vertex = map.getVertex(vertex_id);
+    const vi_map::Vertex& vertex = map.getAnyVertex(vertex_id);
     pose_graph::EdgeIdSet outgoing_edges;
-    vertex.getOutgoingEdges(&outgoing_edges);
+    vertex.getAnyOutgoingEdges(&outgoing_edges);
     pose_graph::EdgeId outgoing_imu_edge_id;
     for (const pose_graph::EdgeId& edge_id : outgoing_edges) {
-      if (map.getEdgeType(edge_id) == pose_graph::Edge::EdgeType::kViwls) {
+      if (map.getAnyEdgeType(edge_id) == pose_graph::Edge::EdgeType::kViwls) {
         outgoing_imu_edge_id = edge_id;
         break;
       }
@@ -367,7 +368,7 @@ void PoseInterpolator::buildVertexToTimeList(
       break;
     }
     const vi_map::ViwlsEdge& imu_edge =
-        map.getEdgeAs<vi_map::ViwlsEdge>(outgoing_imu_edge_id);
+        map.getAnyEdgeAs<vi_map::ViwlsEdge>(outgoing_imu_edge_id);
     const Eigen::Matrix<int64_t, 1, Eigen::Dynamic>& imu_timestamps =
         imu_edge.getImuTimestamps();
     if (imu_timestamps.cols() > 0) {
@@ -558,14 +559,15 @@ void PoseInterpolator::getMissionTimeRange(
 
   // Interpolation is based on IMU measurements, so select the first IMU
   // timestamp along the viwls edge leaving the root vertex.
-  const vi_map::Vertex& root_vertex = vi_map.getVertex(vertex_ids.front());
+  const vi_map::Vertex& root_vertex = vi_map.getAnyVertex(vertex_ids.front());
   VLOGF(2) << "Earliest timestamp on root vertex: "
-           << root_vertex.getVisualNFrame().getMinTimestampNanoseconds();
+           << vi_map.getVertexTimestampNanoseconds(root_vertex.id());
   root_vertex.getOutgoingEdges(&edge_ids);
   for (const pose_graph::EdgeId& edge_id : edge_ids) {
-    if (vi_map.getEdgeType(edge_id) == pose_graph::Edge::EdgeType::kViwls) {
+    if (vi_map.getAnyEdgeType(edge_id) == pose_graph::Edge::EdgeType::kViwls) {
       *mission_start_ns_ptr =
-          vi_map.getEdgeAs<vi_map::ViwlsEdge>(edge_id).getImuTimestamps()(0, 0);
+          vi_map.getAnyEdgeAs<vi_map::ViwlsEdge>(edge_id).getImuTimestamps()(
+              0, 0);
       break;
     }
   }
@@ -574,13 +576,15 @@ void PoseInterpolator::getMissionTimeRange(
   VLOGF(2) << "First IMU timestamp after root: " << *mission_start_ns_ptr;
 
   // Likewise, use the last IMU measurement before the final vertex.
-  const vi_map::Vertex& last_vertex = vi_map.getVertex(vertex_ids.back());
+  const vi_map::Vertex& last_vertex = vi_map.getAnyVertex(vertex_ids.back());
   VLOGF(2) << "Latest timestamp on final vertex: "
            << last_vertex.getVisualNFrame().getMaxTimestampNanoseconds();
-  last_vertex.getIncomingEdges(&edge_ids);
+  // TODO: Not fully compatible with Lidar vertex. if the last vertex is a lidar
+  // vertex, this fails.
+  last_vertex.getAnyIncomingEdges(&edge_ids);
   for (const pose_graph::EdgeId& edge_id : edge_ids) {
-    if (vi_map.getEdgeType(edge_id) == pose_graph::Edge::EdgeType::kViwls) {
-      *mission_end_ns_ptr = vi_map.getEdgeAs<vi_map::ViwlsEdge>(edge_id)
+    if (vi_map.getAnyEdgeType(edge_id) == pose_graph::Edge::EdgeType::kViwls) {
+      *mission_end_ns_ptr = vi_map.getAnyEdgeAs<vi_map::ViwlsEdge>(edge_id)
                                 .getImuTimestamps()
                                 .topRightCorner<1, 1>()(0, 0);
       break;
