@@ -57,6 +57,7 @@ typedef std::unordered_map<resources::VoxelPosition, OctoTreeNode*> SurfaceMap;
 struct BALMPlane {
   Eigen::Vector3d n;  // normal
   Eigen::Vector3d p;  // point on plane
+  double sigmainv;    // 1 / sigma
 };
 
 class PointCluster {

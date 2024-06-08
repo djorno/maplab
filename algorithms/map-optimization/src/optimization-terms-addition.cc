@@ -112,7 +112,6 @@ void addLandmarkTermForKeypoint(
 
   const double observation_uncertainty =
       visual_frame.getKeypointMeasurementUncertainty(keypoint_idx);
-  LOG(INFO) << "Uncertainty: " << observation_uncertainty;
 
   double* intrinsics_params = nullptr;
   double* distortion_params = nullptr;

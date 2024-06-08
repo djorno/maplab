@@ -481,9 +481,12 @@ double VoxHessAtom::evaluate_residual(
     CHECK(xs[i] != nullptr);
     Eigen::Map<const Eigen::Matrix<double, 7, 1>> xs_i(xs[i]);
     // from active to passive from JPL to Hamilton --> no inversion needed
-    Eigen::Quaterniond q_MI(xs_i.block<4, 1>(0, 0));
-    Eigen::Vector3d p_MI = xs_i.block<3, 1>(4, 0);
-    aslam::Transformation T_M_I(q_MI, p_MI);
+    Eigen::Quaterniond q_I_M(xs_i.block<4, 1>(0, 0));
+    Eigen::Vector3d p_M_I = xs_i.block<3, 1>(4, 0);
+    Eigen::Matrix3d R_I_M;
+    common::toRotationMatrixJPL(q_I_M.coeffs(), &R_I_M);
+    aslam::Quaternion q_I_M_HML(R_I_M);
+    aslam::Transformation T_M_I(p_M_I, q_I_M_HML.inverse());
     aslam::Transformation T_G_S = T_G_M * T_M_I * T_I_S;
     // BALM operates in the sensor frame, not inertial frame.
     sig_mutable += sig_origin[sig_i].transform(T_G_S);
@@ -513,12 +516,23 @@ void VoxHessAtom::generate_original_planes() {
         sig_mutable.P / sig_mutable.N - vBar * vBar.transpose();
 
     Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(cmt);
-
+    Eigen::Vector3d n = saes.eigenvectors().col(0);
     BALMPlane plane;
-
-    plane.n = saes.eigenvectors().col(0);
+    if (n.dot(vBar) <= 0) {
+      plane.n = n;
+    } else {
+      plane.n = -n;
+    }
     CHECK(std::abs(plane.n.norm() - 1.0) <= 1e-6);
     plane.p = vBar;
+    if (sig_mutable.N < 4 ||
+        saes.eigenvalues()[0] / saes.eigenvalues()[1] > 0.05) {
+      plane.sigmainv = 0.0;
+    } else {
+      // plane.sigmainv =
+      //     saes.eigenvalues()[1] / (saes.eigenvalues()[0] + 1e-6) / 1e8;
+      plane.sigmainv = 0.1;
+    }
     original_planes.push_back(plane);
     CHECK(std::abs(original_planes[sig_i].n.norm() - 1.0) <= 1e-6)
         << "n: " << original_planes[sig_i].n.transpose();
@@ -534,9 +548,12 @@ void VoxHessAtom::evaluate_plane(
     CHECK(xs[i] != nullptr);
     Eigen::Map<const Eigen::Matrix<double, 7, 1>> xs_i(xs[i]);
     // from active to passive from JPL to Hamilton --> no inversion needed
-    Eigen::Quaterniond q_MI(xs_i.block<4, 1>(0, 0));
-    Eigen::Vector3d p_MI = xs_i.block<3, 1>(4, 0);
-    aslam::Transformation T_M_I(q_MI, p_MI);
+    Eigen::Quaterniond q_I_M(xs_i.block<4, 1>(0, 0));
+    Eigen::Vector3d p_M_I = xs_i.block<3, 1>(4, 0);
+    Eigen::Matrix3d R_I_M;
+    common::toRotationMatrixJPL(q_I_M.coeffs(), &R_I_M);
+    aslam::Quaternion q_I_M_HML(R_I_M);
+    aslam::Transformation T_M_I(p_M_I, q_I_M_HML.inverse());
 
     aslam::Transformation T_M_S = T_M_I * T_I_S;
     // transform the point cluster into a common frame for addition (Map frame)
@@ -549,6 +566,13 @@ void VoxHessAtom::evaluate_plane(
 
   plane.n = saes.eigenvectors().col(0);
   plane.p = vBar;
+  if (sig_mutable.N < 4 ||
+      saes.eigenvalues()[0] / saes.eigenvalues()[1] > 0.05) {
+    plane.sigmainv = 0.0;
+  } else {
+    // plane.sigmainv = saes.eigenvalues()[1] / (saes.eigenvalues()[0] + 1e-6);
+    plane.sigmainv = 0.1;
+  }
 }
 
 }  // namespace ceres_error_terms

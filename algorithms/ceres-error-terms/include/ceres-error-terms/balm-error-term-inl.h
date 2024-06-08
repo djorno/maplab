@@ -36,13 +36,15 @@ bool BALMErrorTerm::Evaluate(
   }
 
   // Unpack parameter blocks.
-  Eigen::Map<const Eigen::Quaterniond> q_I_M_JPL(parameters[kIdxPose]);
+  Eigen::Map<const Eigen::Quaterniond> q_I_M(parameters[kIdxPose]);
   Eigen::Map<const Eigen::Vector3d> p_M_I(
       parameters[kIdxPose] + balmblocks::kOrientationBlockSize);
-  // from active to passive and from JPL to Hamilton (no inversion needed)
-  Eigen::Quaterniond q_M_I = q_I_M_JPL;
 
-  aslam::Transformation T_M_I(p_M_I, q_M_I);
+  Eigen::Matrix3d R_I_M;
+  common::toRotationMatrixJPL(q_I_M.coeffs(), &R_I_M);
+  aslam::Quaternion q_I_M_HML(R_I_M);
+
+  aslam::Transformation T_M_I(p_M_I, q_I_M_HML.inverse());
 
   const aslam::Transformation& T_G_M = evaluation_callback_->get_T_G_M();
   const aslam::Transformation& T_I_S = evaluation_callback_->get_T_I_S();
@@ -56,27 +58,36 @@ bool BALMErrorTerm::Evaluate(
   const std::vector<BALMPlane>& feature_planes_i =
       evaluation_callback_->get_feature_planes(feature_index_);
 
+  // get normalization factor N_mean
+  const double N_mean = evaluation_callback_->get_N_mean();
+
   for (size_t i = 0; i < feature_index_.size(); i++) {
     const double N_ij = evaluation_callback_->get_N_ij(
         feature_index_[i].first, feature_index_[i].second);
     const double N_i = evaluation_callback_->get_N_i(feature_index_[i].first);
 
-    const Eigen::Vector3d& uk_i = feature_planes_i[i].n;
+    const double sign =
+        (feature_planes_i[i].n.dot(R_M_S * original_planes_ij[i].n) < 0) ? -1.0
+                                                                         : 1.0;
+    const Eigen::Vector3d& uk_i = sign * feature_planes_i[i].n;
     const Eigen::Vector3d& uk0_ij = original_planes_ij[i].n;
     const Eigen::Vector3d& pBar_i = feature_planes_i[i].p;
     const Eigen::Vector3d& pBar0_ij = original_planes_ij[i].p;
+
+    const double sigmainv = original_planes_ij[i].sigmainv;
 
     // check normals
     CHECK(std::abs(uk_i.norm() - 1.0) <= 1e-6);
     CHECK(std::abs(uk0_ij.norm() - 1.0) <= 1e-6);
     CHECK(std::abs(uk_i.dot(R_M_S * uk0_ij)) <= 1.0)
         << "uk_i.dot(uk_ij): " << uk_i.dot(R_M_S * uk0_ij);
+    CHECK_GE(sigmainv, 0.0);
 
     ////////////////////////////// RESIDUALS ////////////////////////////////
-    Eigen::Vector3d r_q = N_ij * common::skew(uk_i) * R_M_S * uk0_ij *
-                          acos(uk_i.dot(R_M_S * uk0_ij));
-    Eigen::Vector3d r_p =
-        N_ij * uk_i * uk_i.transpose() * (R_M_S * pBar0_ij + p_M_S - pBar_i);
+    Eigen::Vector3d r_q = (10 * N_ij * sigmainv) * common::skew(uk_i) * R_M_S *
+                          uk0_ij * acos(uk_i.dot(R_M_S * uk0_ij));
+    Eigen::Vector3d r_p = (10 * N_ij) * uk_i * uk_i.transpose() *
+                          (R_M_S * pBar0_ij + p_M_S - pBar_i);
     /////////////////////////////////////////////////////////////////////////
 
     CHECK(i * 6 + 6 <= residual_size_);
@@ -103,20 +114,29 @@ bool BALMErrorTerm::Evaluate(
       CHECK(sig_i < evaluation_callback_->get_sig_origin(feat_num).size());
       const double N_ij = evaluation_callback_->get_N_ij(feat_num, sig_i);
       const double N_i = evaluation_callback_->get_N_i(feat_num);
-      const Eigen::Vector3d& uk_i = feature_planes_i[i].n;
+
+      const double sign =
+          (feature_planes_i[i].n.dot(R_M_S * original_planes_ij[i].n) < 0)
+              ? -1.0
+              : 1.0;
+      const Eigen::Vector3d& uk_i = sign * feature_planes_i[i].n;
       const Eigen::Vector3d& uk0_ij = original_planes_ij[i].n;
       const Eigen::Vector3d& pBar_i = feature_planes_i[i].p;
       const Eigen::Vector3d& pBar0_ij = original_planes_ij[i].p;
 
+      const double sigmainv = original_planes_ij[i].sigmainv;
+      CHECK_GE(sigmainv, 0.0);
+
       ///////// computation of the Jacobian of r_p wrt T_M_S
-      Eigen::Matrix<double, 3, 3> J_r_p_wrt_q_M_S =
-          N_ij * -uk_i * uk_i.transpose() * R_M_S * common::skew(pBar0_ij);
+      Eigen::Matrix<double, 3, 3> J_r_p_wrt_q_M_S = (10 * N_ij) * -uk_i *
+                                                    uk_i.transpose() * R_M_S *
+                                                    common::skew(pBar0_ij);
       Eigen::Matrix<double, 3, 3> J_r_p_wrt_p_M_S =
-          N_ij * uk_i * uk_i.transpose();
+          (10 * N_ij) * uk_i * uk_i.transpose();
       ////////// computation of the Jacobian of r_q wrt T_M_S
       Eigen::Matrix<double, 3, 3> J_r_q_wrt_q_M_S =
-          -common::skew(uk_i) * R_M_S * common::skew(uk0_ij) *
-          acos(uk_i.dot(R_M_S * uk0_ij));
+          -(10 * N_ij * sigmainv) * common::skew(uk_i) * R_M_S *
+          common::skew(uk0_ij) * acos(uk_i.dot(R_M_S * uk0_ij));
       Eigen::Matrix<double, 3, 3> J_r_q_wrt_p_M_S = Eigen::Matrix3d::Zero();
 
       Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_M_S;
@@ -159,7 +179,7 @@ bool BALMErrorTerm::Evaluate(
       // ComputeJacobian
       Eigen::Matrix<double, 4, 3, Eigen::RowMajor> J_quat_local_param;
       quat_parametrization.ComputeJacobian(
-          q_M_I.coeffs().data(), J_quat_local_param.data());
+          q_I_M.coeffs().data(), J_quat_local_param.data());
 
       J.setZero();
       J.leftCols(balmblocks::kOrientationBlockSize) =

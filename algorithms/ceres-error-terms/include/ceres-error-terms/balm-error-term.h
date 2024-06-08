@@ -24,6 +24,7 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
         T_I_S_(T_I_S),
         T_G_M_(T_G_M),
         num_features_(voxhess.plvec_voxels.size()) {
+    // mostly legacy code from original balm residual calculation
     lmbd_.resize(num_features_);
     U_.resize(num_features_);
     sig_transformed_.resize(num_features_);
@@ -33,7 +34,12 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
     for (size_t i = 0; i < num_features_; i++) {
       voxhess_atoms_.push_back(VoxHessAtom(voxhess, i));
       voxhess_atoms_[i].generate_original_planes();
+      num_total_observations_ += voxhess_atoms_[i].index.size();
+      N_total_ += voxhess_atoms_[i].coeff;
     }
+    N_mean = N_total_ / num_total_observations_;
+    N_mean = 1;
+    LOG(INFO) << "N_mean: " << N_mean;
 
     LOG(INFO) << "num features in BEC: " << num_features_;
   }
@@ -129,8 +135,19 @@ class BALMEvaluationCallback : public ceres::EvaluationCallback {
     return voxhess_atoms_[feat_ind].sig_origin[pose_ind].N;
   }
 
+  const double get_N_mean() const {
+    return N_mean;
+  }
+
  private:
+  // number of total balm features
   const size_t num_features_;
+  // total number of points in all features
+  double N_total_ = 0;
+  // total number of planes in all features
+  double num_total_observations_ = 0;
+  // mean number of points per feature observation
+  double N_mean = 0.0;
   std::vector<VoxHessAtom> voxhess_atoms_;
   std::vector<PointCluster> sig_transformed_;
   const std::vector<double*> xs_;
