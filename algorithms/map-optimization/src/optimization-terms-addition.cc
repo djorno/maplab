@@ -472,6 +472,19 @@ int addInertialTermsForEdges(
     problem->getProblemInformationMutable()->setParameterization(
         vertex_to_q_IM__M_p_MI, pose_parameterization);
 
+    if (map->isLidarVertex(vertex_from.id())) {
+      problem->getProblemInformationMutable()->setParameterBlockConstant(
+          vertex_from_q_IM__M_p_MI);
+      //   problem->getProblemInformationMutable()->setParameterBlockConstant(
+      //       vertex_from.get_v_M_Mutable());
+    }
+    if (map->isLidarVertex(vertex_to.id())) {
+      problem->getProblemInformationMutable()->setParameterBlockConstant(
+          vertex_to_q_IM__M_p_MI);
+      //   problem->getProblemInformationMutable()->setParameterBlockConstant(
+      //       vertex_to.get_v_M_Mutable());
+    }
+
     if (fix_gyro_bias) {
       problem->getProblemInformationMutable()->setParameterBlockConstant(
           vertex_to.getGyroBiasMutable());
@@ -591,6 +604,11 @@ int addBALMTerms(
           vertices[i]);
       problem->getProblemInformationMutable()->setParameterization(
           vertex_q_IM__M_p_MI_JPL, parameterizations.pose_parameterization);
+
+      //   if (i >= 50 && i < 25) {
+      //     problem->getProblemInformationMutable()->setParameterBlockConstant(
+      //         vertex_q_IM__M_p_MI_JPL);
+      //   }
     }
   }
   return num_residuals_added;

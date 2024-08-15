@@ -458,8 +458,9 @@ class BALM2 {
     double residual1, residual2, q;
     bool is_calc_hess = true;
     aslam::TransformationVector x_stats_temp = x_stats;
+    LOG(INFO) << "Start damping iter";
 
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 30; i++) {
       if (is_calc_hess) {
         residual1 = divide_thread(x_stats, voxhess, Hess, JacT);
         // Hess = JacT * JacT.transpose();
@@ -475,15 +476,18 @@ class BALM2 {
         x_stats_temp[j].getPosition() =
             x_stats[j].getPosition() + dxi.block<3, 1>(6 * j + 3, 0);
       }
-      // double q1 = 0.5 * dxi.dot(u * D * dxi - JacT);
-      double q1 = 1;
+      double q1 = 0.5 * dxi.dot(u * D * dxi - JacT);
 
       residual2 = only_residual(x_stats_temp, voxhess);
 
       q = (residual1 - residual2);
-      printf(
-          "iter%d: (%lf %lf) u: %lf v: %.1lf q: %.3lf %lf %lf\n", i, residual1,
-          residual2, u, v, q / q1, q1, q);
+
+      LOG(INFO) << "iter" << i << ": (" << residual1 << " " << residual2
+                << ") u: " << u << " v: " << v << " q: " << q / q1 << " " << q1
+                << " " << q;
+      // printf(
+      //     "iter%d: (%lf %lf) u: %lf v: %.1lf q: %.3lf %lf %lf\n", i,
+      //     residual1, residual2, u, v, q / q1, q1, q);
 
       if (q > 0) {
         x_stats = x_stats_temp;
@@ -492,8 +496,7 @@ class BALM2 {
         v = 2;
         q = 1 - pow(2 * q - 1, 3);
         constexpr double kOneThird = 1.0 / 3.0;
-        // u *= (q < kOneThird ? kOneThird : q);
-        u *= kOneThird;
+        u *= (q < kOneThird ? kOneThird : q);
         is_calc_hess = true;
       } else {
         u = u * v;
@@ -504,6 +507,7 @@ class BALM2 {
       if (fabs(residual1 - residual2) / residual1 < 1e-6)
         break;
     }
+    LOG(INFO) << "End damping iter";
   }
 };
 

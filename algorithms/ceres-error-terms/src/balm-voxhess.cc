@@ -51,13 +51,13 @@ DEFINE_int32(
     "PointCloudXYZRGBN = 17, kPointCloudXYZI = 21");
 
 DEFINE_double(
-    ba_balm_kf_distance_threshold_m, 0.5,
+    ba_balm_kf_distance_threshold_m, 0.1,
     "BALM distance threshold to add a new keyframe [m].");
 DEFINE_double(
-    ba_balm_kf_rotation_threshold_deg, 10.0,
+    ba_balm_kf_rotation_threshold_deg, 1,
     "BALM rotation threshold to add a new keyframe [deg].");
 DEFINE_double(
-    ba_balm_kf_time_threshold_s, 1.0,
+    ba_balm_kf_time_threshold_s, 0.1,
     "BALM force a keyframe at fixed time intervals [s].");
 
 DEFINE_double(
@@ -525,8 +525,8 @@ void VoxHessAtom::generate_original_planes() {
     }
     CHECK(std::abs(plane.n.norm() - 1.0) <= 1e-6);
     plane.p = vBar;
-    if (sig_mutable.N < 4 ||
-        saes.eigenvalues()[0] / saes.eigenvalues()[1] > 0.05) {
+    if (sig_mutable.N < 10 ||
+        saes.eigenvalues()[0] / saes.eigenvalues()[1] > 0.25) {
       plane.sigmainv = 0.0;
     } else {
       // plane.sigmainv =

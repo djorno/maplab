@@ -74,18 +74,33 @@ bool BALMErrorTerm::Evaluate(
     const Eigen::Vector3d& pBar_i = feature_planes_i[i].p;
     const Eigen::Vector3d& pBar0_ij = original_planes_ij[i].p;
 
-    const double sigmainv = original_planes_ij[i].sigmainv;
-
+    double sigmainv = original_planes_ij[i].sigmainv;
     // check normals
     CHECK(std::abs(uk_i.norm() - 1.0) <= 1e-6);
     CHECK(std::abs(uk0_ij.norm() - 1.0) <= 1e-6);
-    CHECK(std::abs(uk_i.dot(R_M_S * uk0_ij)) <= 1.0)
-        << "uk_i.dot(uk_ij): " << uk_i.dot(R_M_S * uk0_ij);
-    CHECK_GE(sigmainv, 0.0);
+    CHECK_GT(uk_i.dot(R_M_S * uk0_ij), 0.0)
+        << "Normal direction selection not working";
+    // if the normals are identical, the residuals are zero and numerical issues
+    // can occur in the gradient.
+    if (std::abs(uk_i.dot(R_M_S * uk0_ij) - 1.0) <= 1e-6) {
+      sigmainv = 0.0;
+    } else {
+      CHECK_LE(std::abs(uk_i.dot(R_M_S * uk0_ij)), 1)
+          << "uk_i.dot(uk_ij): " << uk_i.dot(R_M_S * uk0_ij) << " i: " << i;
+      CHECK_GE(acos(uk_i.dot(R_M_S * uk0_ij)), 0.0);
+    }
+    CHECK_GE(sigmainv, 0.0) << "sigmainv: " << sigmainv;
 
     ////////////////////////////// RESIDUALS ////////////////////////////////
-    Eigen::Vector3d r_q = (10 * N_ij * sigmainv) * common::skew(uk_i) * R_M_S *
-                          uk0_ij * acos(uk_i.dot(R_M_S * uk0_ij));
+    // Visually: r_q = (10 * N_ij * sigmainv) * common::skew(uk_i) * R_M_S*
+    // uk0_ij* acos(uk_i.dot(R_M_S * uk0_ij));
+    Eigen::Vector3d r_q =
+        (sigmainv != 0.0)
+            ? ((10 * N_ij * sigmainv) * common::skew(uk_i) * R_M_S * uk0_ij *
+               acos(uk_i.dot(R_M_S * uk0_ij)))
+                  .eval()
+            : Eigen::Vector3d::Zero();  // Set r_q to zero if sigmainv is zero
+
     Eigen::Vector3d r_p = (10 * N_ij) * uk_i * uk_i.transpose() *
                           (R_M_S * pBar0_ij + p_M_S - pBar_i);
     /////////////////////////////////////////////////////////////////////////
@@ -124,7 +139,10 @@ bool BALMErrorTerm::Evaluate(
       const Eigen::Vector3d& pBar_i = feature_planes_i[i].p;
       const Eigen::Vector3d& pBar0_ij = original_planes_ij[i].p;
 
-      const double sigmainv = original_planes_ij[i].sigmainv;
+      double sigmainv = original_planes_ij[i].sigmainv;
+      if (std::abs(uk_i.dot(R_M_S * uk0_ij) - 1.0) <= 1e-6) {
+        sigmainv = 0.0;
+      }
       CHECK_GE(sigmainv, 0.0);
 
       ///////// computation of the Jacobian of r_p wrt T_M_S
@@ -134,9 +152,23 @@ bool BALMErrorTerm::Evaluate(
       Eigen::Matrix<double, 3, 3> J_r_p_wrt_p_M_S =
           (10 * N_ij) * uk_i * uk_i.transpose();
       ////////// computation of the Jacobian of r_q wrt T_M_S
+      // Visually;       -(10 * N_ij * sigmainv) * common::skew(uk_i) * R_M_S*
+      // common::skew(uk0_ij) * acos(uk_i.dot(R_M_S * uk0_ij)) + (10 * N_ij *
+      // sigmainv) * common::skew(uk_i) * R_M_S* uk0_ij* uk_i.transpose() *
+      // R_M_S* common::skew(uk0_ij) / sqrt(1.0 + 1e-6 - pow(uk_i.dot(R_M_S *
+      // uk0_ij), 2));
       Eigen::Matrix<double, 3, 3> J_r_q_wrt_q_M_S =
-          -(10 * N_ij * sigmainv) * common::skew(uk_i) * R_M_S *
-          common::skew(uk0_ij) * acos(uk_i.dot(R_M_S * uk0_ij));
+          (sigmainv != 0.0)
+              ? ((10 * N_ij * sigmainv) *
+                 (-common::skew(uk_i) * R_M_S * common::skew(uk0_ij) *
+                      acos(uk_i.dot(R_M_S * uk0_ij))
+
+                  + common::skew(uk_i) * R_M_S * uk0_ij * uk_i.transpose() *
+                        R_M_S * common::skew(uk0_ij) /
+                        sqrt(1.0 + 1e-6 - pow(uk_i.dot(R_M_S * uk0_ij), 2))))
+                    .eval()
+              : Eigen::Matrix<double, 3, 3>::Zero();  // Zero matrix if
+                                                      // sigmainv is zero
       Eigen::Matrix<double, 3, 3> J_r_q_wrt_p_M_S = Eigen::Matrix3d::Zero();
 
       Eigen::Matrix<double, balmblocks::kResidualSize, 6> J_res_wrt_T_M_S;
