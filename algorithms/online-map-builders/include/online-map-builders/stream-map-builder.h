@@ -3,8 +3,11 @@
 
 #include <Eigen/Dense>
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <feature-tracking/vo-outlier-rejection-pipeline.h>
 #include <landmark-triangulation/pose-interpolator.h>
+#include <limits>
 #include <map-resources/resource-conversion.h>
 #include <memory>
 #include <posegraph/unique-id.h>
@@ -198,6 +201,10 @@ class StreamMapBuilder {
       external_features_outlier_rejection_pipelines_;
 
   static constexpr size_t kKeepNMostRecentImages = 10u;
+
+  resources::PointCloud unused_lidar_points;
+  size_t last_processed_vertex_index_{0};
+  int64_t last_processed_midpoint_timestamp_ns_{std::numeric_limits<int64_t>::min()};
 };
 
 template <typename PointCloudType>
@@ -233,17 +240,119 @@ void StreamMapBuilder::attachLidarMeasurement(
     backend::convertPointCloudType<PointCloudType, resources::PointCloud>(
         lidar_measurement.getPointCloud(), &point_cloud, true, convert_to_ns,
         time_offset_ns);
+    // Temporally allign the point cloud with VI vertices.
+
+    // append point cloud to the buffer
+    unused_lidar_points.append(point_cloud);
+    CHECK(std::is_sorted(unused_lidar_points.times_ns.begin(),
+                        unused_lidar_points.times_ns.end()))
+        << "[StreamMapBuilder] Lidar points are not sorted!";
+
+    pose_graph::VertexIdList vertex_ids;
+    pose_graph_.getAllVertexIdsAlongGraphsSortedByTimestamp(&vertex_ids);
+
+    std::vector<int64_t> vertex_timestamps;
+    vertex_timestamps.reserve(vertex_ids.size());
+    vi_map::VIMission& mission = map_->getMission(mission_id_);
+    for (const auto& vertex_id : vertex_ids) {
+        const int64_t timestamp = pose_graph_.getVertex(vertex_id).getMinTimestampNanoseconds();
+        vertex_timestamps.push_back(timestamp);
+    }
+
+    if (vertex_timestamps.empty() || unused_lidar_points.times_ns.empty()) {
+        VLOG(2) << "[StreamMapBuilder] Skipping lidar association: No vertices or lidar points.";
+        return; // Nothing to associate yet
+    }
+    // Iterate through vertex intervals and split the buffer at midpoints.
+    // Start from the vertex *after* the last one we fully processed.
+    size_t curr_vert_idx = last_processed_vertex_index_;
+    for (; curr_vert_idx + 1 < vertex_timestamps.size(); ++curr_vert_idx) {
+        const auto current_vertex_ts = vertex_timestamps[curr_vert_idx];
+        const auto next_vertex_ts = vertex_timestamps[curr_vert_idx + 1];
+
+        CHECK_LE(current_vertex_ts, next_vertex_ts);
+
+        const auto midpoint_time = current_vertex_ts + (next_vertex_ts - current_vertex_ts) / 2;
+
+        CHECK(!unused_lidar_points.times_ns.empty());
+
+        const auto min_lidar_time = unused_lidar_points.times_ns.front();
+        const auto max_lidar_time = unused_lidar_points.times_ns.back();
+
+        CHECK(min_lidar_time >= last_processed_midpoint_timestamp_ns_)
+            << "[StreamMapBuilder] Lidar points are not sorted!";
+        
+        if (midpoint_time < min_lidar_time) {
+            continue; // No points should be assigned to the current vertex.
+        }
+        if (midpoint_time > max_lidar_time) {
+            break; // The entire remaning lidar buffer should be assigned to the current vertex.
+        }
+
+        const auto total_points = unused_lidar_points.size();
+        const resources::PointCloud points_for_current_vertex = unused_lidar_points.splitAtTime(midpoint_time);
+        CHECK(unused_lidar_points.size() + points_for_current_vertex.size() == total_points)
+            << "[StreamMapBuilder] WTF? Split did not preserve total point count!";
+        CHECK(unused_lidar_points.size() > 0)
+            << "[StreamMapBuilder] Split did not leave any points in the buffer!";
+
+        const auto num_points_split = points_for_current_vertex.size();
+        VLOG(3) << "[StreamMapBuilder] Assigning " << num_points_split << " points for vertex " << curr_vert_idx
+                << ". \nRemaining buffer size: " << unused_lidar_points.size();
+        CHECK_GE(points_for_current_vertex.times_ns.front(), last_processed_midpoint_timestamp_ns_);
+        CHECK_LE(points_for_current_vertex.times_ns.back(), midpoint_time);
+        // Associate the split points with the current vertex.
+        // Add the extracted point cloud as a resource associated with the vertex timestamp.
+        if (map_->hasSensorResource(
+                mission, point_cloud_type, lidar_sensor_id, current_vertex_ts)) {
+            // If the resource already exists, delete it and add the new one.
+            // This resource was added prematurely.
+            LOG(WARNING)
+                << "[StreamMapBuilder] There is already a point cloud resource at "
+                << current_vertex_ts << " replacing...";
+            map_->deleteSensorResource<resources::PointCloud>(
+                point_cloud_type, lidar_sensor_id, current_vertex_ts,
+                false /*keep sensor resurce file*/, &mission);
+        }
+        map_->addSensorResource(
+            point_cloud_type, lidar_sensor_id, current_vertex_ts, points_for_current_vertex,
+            &mission);
+        VLOG(2) << "[StreamMapBuilder] Associated " << num_points_split
+                << " points with vertex " << curr_vert_idx << " (ts " << current_vertex_ts << ")";
+
+        // Update state tracking
+        last_processed_vertex_index_ = curr_vert_idx;
+        last_processed_midpoint_timestamp_ns_ = midpoint_time;
+    }
+    if (unused_lidar_points.size() > 0) {
+        // Dump the remaining points into the closest vertex.
+        const auto current_vertex_ts = vertex_timestamps[curr_vert_idx];
+        if (map_->hasSensorResource(
+                mission, point_cloud_type, lidar_sensor_id,
+                current_vertex_ts)) {
+            LOG(WARNING)
+                << "[StreamMapBuilder] There is already a point cloud resource at "
+                << current_vertex_ts << " replacing...";
+            map_->deleteSensorResource<resources::PointCloud>(
+                point_cloud_type, lidar_sensor_id, current_vertex_ts,
+                false /*keep sensor resurce file*/, &mission);
+        }
+        map_->addSensorResource(
+            point_cloud_type, lidar_sensor_id, current_vertex_ts,
+            unused_lidar_points, &mission);
+    }
   } else {
     backend::convertPointCloudType<PointCloudType, resources::PointCloud>(
         lidar_measurement.getPointCloud(), &point_cloud, false);
-  }
 
-  backend::ResourceType point_cloud_type =
-      backend::getResourceTypeForPointCloud(point_cloud);
-  vi_map::VIMission& mission = map_->getMission(mission_id_);
-  map_->addSensorResource(
-      point_cloud_type, lidar_sensor_id,
-      lidar_measurement.getTimestampNanoseconds(), point_cloud, &mission);
+        backend::ResourceType point_cloud_type =
+        backend::getResourceTypeForPointCloud(point_cloud);
+    vi_map::VIMission& mission = map_->getMission(mission_id_);
+    map_->addSensorResource(
+        point_cloud_type, lidar_sensor_id,
+        lidar_measurement.getTimestampNanoseconds(), point_cloud, &mission);
+    return;
+  }
 }
 
 template <typename PointCloudType>

@@ -169,6 +169,14 @@ class PointCloud {
   // Removes points inside a 3D bounding box.
   void filterBoundingBox3D(BoundingBox3D box_filter);
 
+  // Returns a pointcloud within the requested time range.
+  PointCloud getPointCloudInTimeRange(int32_t min_time, int32_t max_time) const;
+
+  // Removes points within the requested time range.
+  void filterTime(int32_t min_time, int32_t max_time);
+
+  PointCloud splitAtTime(int32_t time);
+
   // Downsample using a voxel grid. The returned point cloud will only
   // have xyz coordinates, all other information is stripped away.
   void downsampleVoxelized(double voxel_size, PointCloud* voxelized) const;

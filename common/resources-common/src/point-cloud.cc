@@ -269,6 +269,76 @@ size_t PointCloud::filterValidMinMaxBox(
   return num_removed;
 }
 
+PointCloud PointCloud::splitAtTime(const int32_t time) {
+  PointCloud result;
+  if (!hasTimes() || times_ns.empty()) {
+      // If no times or empty cloud, return an empty cloud and leave original unchanged.
+      return result;
+  }
+
+  // Find the first element strictly greater than 'time'.
+  // Assumes times_ns is sorted.
+  const auto split_iter = std::upper_bound(times_ns.begin(), times_ns.end(), time);
+
+  // Calculate the index corresponding to the split iterator.
+  // All points from index 0 up to (split_idx - 1) belong to 'result'.
+  // All points from index split_idx to the end remain in 'this'.
+  const size_t split_idx = std::distance(times_ns.begin(), split_iter);
+
+  if (split_idx == 0) {
+      // No points are less than or equal to 'time', return an empty cloud.
+      return result;
+  }
+
+  // Create result
+  result.times_ns.reserve(split_idx);
+  result.xyz.reserve(split_idx * 3);
+  if (hasNormals()) result.normals.reserve(split_idx * 3);
+  if (hasColor()) result.colors.reserve(split_idx);
+  if (hasScalars()) result.scalars.reserve(split_idx);
+  if (hasLabels()) result.labels.reserve(split_idx);
+
+  // Copy times
+  result.times_ns.assign(times_ns.begin(), split_iter);
+
+  // Copy xyz (3 floats per point)
+  result.xyz.assign(xyz.begin(), xyz.begin() + split_idx * 3);
+
+  // Copy optional data
+  if (hasNormals()) {
+      result.normals.assign(normals.begin(), normals.begin() + split_idx * 3);
+  }
+  if (hasColor()) {
+      result.colors.assign(colors.begin(), colors.begin() + split_idx);
+  }
+  if (hasScalars()) {
+      result.scalars.assign(scalars.begin(), scalars.begin() + split_idx);
+  }
+  if (hasLabels()) {
+      result.labels.assign(labels.begin(), labels.begin() + split_idx);
+  }
+
+
+  // Erase the elements from the beginning up to the split point
+  times_ns.erase(times_ns.begin(), split_iter);
+  xyz.erase(xyz.begin(), xyz.begin() + split_idx * 3);
+
+  if (hasNormals()) {
+      normals.erase(normals.begin(), normals.begin() + split_idx * 3);
+  }
+  if (hasColor()) {
+      colors.erase(colors.begin(), colors.begin() + split_idx);
+  }
+  if (hasScalars()) {
+      scalars.erase(scalars.begin(), scalars.begin() + split_idx);
+  }
+  if (hasLabels()) {
+      labels.erase(labels.begin(), labels.begin() + split_idx);
+  }
+
+  return result;
+}
+
 void PointCloud::downsampleVoxelized(
     double voxel_size, PointCloud* voxelized) const {
   CHECK_GT(voxel_size, 1e-3) << "Voxel size is too small.";
