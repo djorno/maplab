@@ -52,7 +52,7 @@ int addInertialTermsForEdges(
 
 int addBALMTerms(
     const ceres_error_terms::VoxHess& voxhess, OptimizationProblem* problem,
-    std::vector<std::shared_ptr<ceres::EvaluationCallback>>*
+    std::shared_ptr<ceres::EvaluationCallback>
         evaluation_callback_ptr);
 
 int addWheelOdometryTerms(

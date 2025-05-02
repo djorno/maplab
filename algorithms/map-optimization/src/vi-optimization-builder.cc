@@ -159,7 +159,7 @@ ViProblemOptions ViProblemOptions::initFromGFlags() {
 OptimizationProblem* constructOptimizationProblem(
     const vi_map::MissionIdSet& mission_ids, const ViProblemOptions& options,
     vi_map::VIMap* map,
-    std::vector<std::shared_ptr<ceres::EvaluationCallback>>*
+    std::shared_ptr<ceres::EvaluationCallback>
         evaluation_callback) {
   CHECK(map);
   CHECK(options.isValid());

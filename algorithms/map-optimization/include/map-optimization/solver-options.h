@@ -89,11 +89,10 @@ inline void addCallbacksToSolverOptions(
 }
 
 inline void addEvaluationCallbackToSolverOptions(
-    std::vector<std::shared_ptr<ceres::EvaluationCallback>>& callback,
+    std::shared_ptr<ceres::EvaluationCallback> callback,
     ceres::Solver::Options* options) {
   CHECK_NOTNULL(options);
-  options->evaluation_callback =
-      callback.empty() ? nullptr : callback.front().get();
+  options->evaluation_callback = callback;
 }
 
 }  // namespace map_optimization

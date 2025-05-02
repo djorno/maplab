@@ -512,7 +512,7 @@ int addInertialTermsForEdges(
 
 int addBALMTerms(
     const ceres_error_terms::VoxHess& voxhess, OptimizationProblem* problem,
-    std::vector<std::shared_ptr<ceres::EvaluationCallback>>*
+    std::shared_ptr<ceres::EvaluationCallback>
         evaluation_callback_ptr) {
   CHECK_NOTNULL(problem);
 
@@ -529,6 +529,9 @@ int addBALMTerms(
   const size_t num_features = voxhess.plvec_voxels.size();
 
   const vi_map::MissionIdSet& missions_to_optimize = problem->getMissionIds();
+  CHECK_EQ(
+      missions_to_optimize.size(), 1,
+      "Currently incompatible with multiple missions.");
   for (const vi_map::MissionId& mission_id : missions_to_optimize) {
     pose_graph::VertexIdList vertices;
     map->getAllLidarVertexIdsInMissionAlongGraph(mission_id, &vertices);
@@ -542,7 +545,7 @@ int addBALMTerms(
     }
     LOG(INFO) << "num xs: " << xs.size();
 
-    aslam::Transformation& T_I_S = map->getSensorManager().getSensor_T_B_S(
+    const aslam::Transformation& T_I_S = map->getSensorManager().getSensor_T_B_S(
         map->getMission(mission_id).getLidarId());
     const aslam::Transformation& T_G_M =
         map->getMissionBaseFrameForMission(mission_id).get_T_G_M();
@@ -552,9 +555,9 @@ int addBALMTerms(
 
     // construct the evaluation callback for the current feature
     LOG(INFO) << "CP before eval callback construction";
-    evaluation_callback_ptr->emplace_back(
+    evaluation_callback_ptr = 
         std::make_shared<ceres_error_terms::BALMEvaluationCallback>(
-            voxhess, xs, T_I_S, T_G_M));
+            voxhess, xs, T_I_S, T_G_M);
     LOG(INFO) << "CP after eval callback construction";
     // loop over all features
     LOG(INFO) << "Num features: " << num_features;
@@ -584,12 +587,9 @@ int addBALMTerms(
       // find the features that contribute to j_i
       std::vector<std::pair<size_t, size_t>> feature_index = feature_indices[i];
       // construct the residual block for the current feature
-      std::shared_ptr<ceres_error_terms::BALMErrorTerm> balm_term_cost(
-          new ceres_error_terms::BALMErrorTerm(
-              std::static_pointer_cast<
-                  ceres_error_terms::BALMEvaluationCallback>(
-                  evaluation_callback_ptr->back()),
-              i, feature_index));
+      auto balm_term_cost = std::make_shared<ceres_error_terms::BALMErrorTerm>(
+              evaluation_callback_ptr,
+              i, feature_index);
       // add the residual block to the problem
       double* vertex_q_IM__M_p_MI_JPL = xs[i];
       //   std::shared_ptr<ceres::LossFunction> loss_function(

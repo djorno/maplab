@@ -393,10 +393,10 @@ void VoxHess::evaluate_voxhess(vi_map::VIMap* map) {
             map->setMaxCacheSize(map->getMaxCacheSize() + 1u);
           };
 
-  const int64_t time_threshold_ns =
+  constexpr int64_t time_threshold_ns =
       FLAGS_ba_balm_kf_time_threshold_s * kSecondsToNanoSeconds;
-  const double distance_threshold = FLAGS_ba_balm_kf_distance_threshold_m;
-  const double rotation_threshold =
+  constexpr double distance_threshold = FLAGS_ba_balm_kf_distance_threshold_m;
+  constexpr double rotation_threshold =
       FLAGS_ba_balm_kf_rotation_threshold_deg * kDegToRad;
 
   depth_integration::ResourceSelectionFunction selection_function =

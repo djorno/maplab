@@ -43,7 +43,7 @@ bool VIMapOptimizer::optimize(
     return false;
   }
 
-  std::vector<std::shared_ptr<ceres::EvaluationCallback>> evaluation_callback;
+  std::shared_ptr<ceres::EvaluationCallback> evaluation_callback;
 
   map_optimization::OptimizationProblem::UniquePtr optimization_problem(
       map_optimization::constructOptimizationProblem(

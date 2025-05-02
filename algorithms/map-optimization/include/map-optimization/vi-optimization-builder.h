@@ -112,7 +112,7 @@ struct ViProblemOptions {
 OptimizationProblem* constructOptimizationProblem(
     const vi_map::MissionIdSet& mission_ids, const ViProblemOptions& options,
     vi_map::VIMap* map,
-    std::vector<std::shared_ptr<ceres::EvaluationCallback>>*
+    std::shared_ptr<ceres::EvaluationCallback>
         evaluation_callback = nullptr);
 
 }  // namespace map_optimization

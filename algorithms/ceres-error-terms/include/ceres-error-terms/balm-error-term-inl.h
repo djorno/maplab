@@ -21,8 +21,8 @@ bool BALMErrorTerm::Evaluate(
   // LOG(INFO) << "BALMErrorTerm::Evaluate";
   JplQuaternionParameterization quat_parametrization;
   // LOG(INFO) << "CP 1";
-  CHECK(evaluation_callback_ != nullptr);
-  CHECK(parameters != nullptr);
+  CHECK_NOTNULL(evaluation_callback_);
+  CHECK_NOTNULL(parameters);
 
   CHECK(residual_size_ == feature_index_.size() * 6);
   Eigen::Map<Eigen::VectorXd> residuals_vec(residuals, residual_size_);
@@ -205,7 +205,7 @@ bool BALMErrorTerm::Evaluate(
           jacobians[kIdxPose], residual_size_, balmblocks::kPoseSize);
 
       // Compute the parametrization jacobian. Since ceres expects the jacobian
-      // wrt the parameters and we have the jacobian wrt the SE(3) retraction,
+      // wrt the SE(3) parametrization given and we have the jacobian wrt the SE(3) tangent space,
       // we must apply the inverse of the parametrization jacobian to our
       // residual jacobian. Factor 4 is due to the internal computation in
       // ComputeJacobian
