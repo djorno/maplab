@@ -1,0 +1,33 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+This is a ROS based open source mapping project named maplab. 
+When generating, analyzing, or modifying code related to the Maplab framework, strictly adhere to its fundamental two-stage, modular architecture. Differentiate all operations based on this structure:
+
+Front-End Focus (Real-time/On-Session Processing):
+
+Prioritize code for robust, independent visual-inertial data acquisition and initial VIMap (Visual-Inertial Map) generation.
+
+Recognize and correctly interact with front-end nodes like ROVIOLI (or similar custom implementations) responsible for on-robot/on-session sensor data processing and creating foundational map segments.
+
+Ensure generated code for this stage is optimized for efficiency and real-time constraints where applicable.
+
+Backend Focus (Offline Processing, Optimization, and Research):
+
+Prioritize code for comprehensive offline map manipulation using functionalities akin to the Maplab console and server.
+
+This includes operations such as: detailed map optimization, multi-session/multi-robot map merging, global loop closure detection and enforcement, data analysis, visualization, and batch processing for algorithmic evaluation.
+
+When dealing with multi-robot scenarios, focus on code that facilitates consistent global map creation and maintenance via server components.
+
+Modularity and Extensibility (Research Platform):
+
+Leverage Maplab's inherent modularity when tasked with integrating new algorithms (e.g., for localization, mapping, place recognition, or VIO).
+
+Ensure new code modules integrate cleanly with existing Maplab APIs, data structures (especially the VIMap), and communication protocols.
+
+Propose extensions or modifications that respect and enhance the framework's research-oriented, plug-and-play nature.
+
+Overall, all code interactions must reflect an understanding of Maplab as a platform designed for both practical SLAM applications and advanced research, emphasizing the separation between online map creation and offline refinement/analysis.

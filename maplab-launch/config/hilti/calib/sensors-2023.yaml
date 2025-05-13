@@ -1,0 +1,297 @@
+sensors:
+  - id: ff000000000000000000000000000005
+    sensor_type: EXTERNAL_FEATURES
+    topic: /maplab_features4
+    description: SuperPoint features
+    target_sensor: c70f9347314d4c26a72280c1f193b47d
+    feature_type: SuperPoint
+  - id: ff000000000000000000000000000002
+    sensor_type: EXTERNAL_FEATURES
+    topic: /maplab_features1
+    description: SuperPoint features
+    target_sensor: 44ed7e1913a847b3b8d9884b9b02fb03
+    feature_type: SuperPoint
+  - id: ff000000000000000000000000000004
+    sensor_type: EXTERNAL_FEATURES
+    topic: /maplab_features3
+    description: SuperPoint features
+    target_sensor: da7d19d6662f4a428240bf7f706bbb4d
+    feature_type: SuperPoint
+  - id: acbb23479caf7592b35518478a2fe08f
+    sensor_type: ODOMETRY_6DOF
+    topic: /fastlio2/odom
+    description: FAST-LIO2
+    T_St_Stp1_fixed_covariance:
+      rows: 6
+      cols: 6
+      data:
+        - [0.0001, 0, 0, 0, 0, 0]
+        - [0, 0.0001, 0, 0, 0, 0]
+        - [0, 0, 0.0001, 0, 0, 0]
+        - [0, 0, 0, 0.005, 0, 0]
+        - [0, 0, 0, 0, 0.005, 0]
+        - [0, 0, 0, 0, 0, 0.005]
+  - id: 3da6d03bd42e41a93dc941bd5fd9353d
+    sensor_type: IMU
+    topic: /alphasense/imu
+    description: Bosch BMI085
+    sigmas:
+      gyro_noise_density: 0.2
+      gyro_bias_random_walk_noise_density: 0.01
+      acc_noise_density: 0.1
+      acc_bias_random_walk_noise_density: 0.05
+    saturation_accel_max_mps2: 60
+    saturation_gyro_max_radps: 15
+    gravity_magnitude_mps2: 9.807399999999999
+  - id: 4af1bac2a7c5fad79f09e49e3b96d87c
+    sensor_type: NCAMERA
+    topic: ""
+    description: Alphasense
+    cameras:
+      - camera:
+          id: 9da9c2fa16894a059f8b40740c721cb1
+          sensor_type: CAMERA
+          topic: /alphasense/cam0
+          description: Forward 0
+          compressed: false
+          line-delay-nanoseconds: 0
+          image_height: 540
+          image_width: 720
+          type: pinhole
+          intrinsics:
+            rows: 4
+            cols: 1
+            data:
+              - 351.314003641933
+              - 351.4911744656785
+              - 367.8522793375995
+              - 253.8402144980996
+          distortion:
+            type: equidistant
+            parameters:
+              rows: 4
+              cols: 1
+              data:
+                - -0.03696737352869157
+                - -0.008917880497032812
+                - 0.008912969593422046
+                - -0.003768597749608731
+        T_B_C:
+          rows: 4
+          cols: 4
+          data:
+            - [0.004849772428230259, 0.001561767217687193, 0.9999870202110368, 0.04766175364397997]
+            - [0.9999414346087848, 0.009667602187987123, -0.004864650085711075, 0.04650255880505892]
+            - [-0.0096750741555785, 0.9999520480258486, -0.001514790081638795, -0.01453842979973754]
+            - [0, 0, 0, 1]
+      - camera:
+          id: 44ed7e1913a847b3b8d9884b9b02fb03
+          sensor_type: CAMERA
+          topic: /alphasense/cam1
+          description: Forward 1
+          compressed: false
+          line-delay-nanoseconds: 0
+          image_height: 540
+          image_width: 720
+          type: pinhole
+          intrinsics:
+            rows: 4
+            cols: 1
+            data:
+              - 352.6489794433894
+              - 352.8586498571586
+              - 347.8170010310082
+              - 270.5806692485468
+          distortion:
+            type: equidistant
+            parameters:
+              rows: 4
+              cols: 1
+              data:
+                - -0.0390866520827088
+                - -0.005525347047415151
+                - 0.004398151558986798
+                - -0.001970126317091781
+        T_B_C:
+          rows: 4
+          cols: 4
+          data:
+            - [-0.0002067137301486888, 7.986892044958838e-05, 0.9999999754451947, 0.04699211366483012]
+            - [0.9999876316426204, 0.004969305404127544, 0.0002063142854472622, -0.06167218928414518]
+            - [-0.004969288804008265, 0.9999876497361139, -8.089515625897548e-05, -0.01451366355841784]
+            - [0, 0, 0, 1]
+      - camera:
+          id: da7d19d6662f4a428240bf7f706bbb4d
+          sensor_type: CAMERA
+          topic: /alphasense/cam3
+          description: Sideways Right
+          compressed: false
+          line-delay-nanoseconds: 0
+          image_height: 540
+          image_width: 720
+          type: pinhole
+          intrinsics:
+            rows: 4
+            cols: 1
+            data:
+              - 352.9514843860555
+              - 353.328379035474
+              - 363.9334522827434
+              - 266.1451170500741
+          distortion:
+            type: equidistant
+            parameters:
+              rows: 4
+              cols: 1
+              data:
+                - -0.03890973498616883
+                - -0.002604676547864069
+                - 0.0004634700730293949
+                - -0.0003669821667537106
+        T_B_C:
+          rows: 4
+          cols: 4
+          data:
+            - [-0.9999027769335511, 0.01190146226139185, 0.007265801856067349, -0.005568088254596724]
+            - [0.007233796924959195, -0.002730004226223937, 0.9999701091827555, 0.05769696350893908]
+            - [0.01192094218673244, 0.9999254483575084, 0.002643646045733639, -0.01339732512855717]
+            - [0, 0, 0, 1]
+      - camera:
+          id: c70f9347314d4c26a72280c1f193b47d
+          sensor_type: CAMERA
+          topic: /alphasense/cam4
+          description: Sideways Left
+          compressed: false
+          line-delay-nanoseconds: 0
+          image_height: 540
+          image_width: 720
+          type: pinhole
+          intrinsics:
+            rows: 4
+            cols: 1
+            data:
+              - 351.5132148653381
+              - 351.7557554938886
+              - 342.8425988673232
+              - 259.9179325453578
+          distortion:
+            type: equidistant
+            parameters:
+              rows: 4
+              cols: 1
+              data:
+                - -0.03842764034005408
+                - -0.005841411460411122
+                - 0.003451041303088915
+                - -0.001146354367200502
+        T_B_C:
+          rows: 4
+          cols: 4
+          data:
+            - [0.9999924089781367, 0.003392625697866645, 0.001916266416029345, -0.007451379666845823]
+            - [0.001921471013374736, -0.00153149703215183, -0.9999969812284363, -0.07292157000986485]
+            - [-0.003389680699975701, 0.9999930722798608, -0.001538004238461843, -0.01517698816137533]
+            - [0, 0, 0, 1]
+  - id: bbf123479caf7592b35518478a2fe08d
+    sensor_type: LIDAR
+    topic: /hesai/pandar
+    description: Pandar
+    has_point_timestamps: true
+    has_relative_point_timestamps: true
+    point_timestamp_unit: SECONDS
+    min_range_m: 0.2
+    max_range_m: 150
+    robot_filter:
+      x_min: -0.5
+      x_max: 0.5
+      y_min: -0.1
+      y_max: 1.5
+      z_min: -3
+      z_max: 0.5
+  - id: ff000000000000000000000000000001
+    sensor_type: EXTERNAL_FEATURES
+    topic: /maplab_features0
+    description: SuperPoint features
+    target_sensor: 9da9c2fa16894a059f8b40740c721cb1
+    feature_type: SuperPoint
+extrinsics:
+  - sensor_id: ff000000000000000000000000000005
+    base_sensor_id: 3da6d03bd42e41a93dc941bd5fd9353d
+    T_B_S:
+      rows: 4
+      cols: 4
+      data:
+        - [1, 0, 0, 0]
+        - [0, 1, 0, 0]
+        - [0, 0, 1, 0]
+        - [0, 0, 0, 1]
+  - sensor_id: ff000000000000000000000000000002
+    base_sensor_id: 3da6d03bd42e41a93dc941bd5fd9353d
+    T_B_S:
+      rows: 4
+      cols: 4
+      data:
+        - [1, 0, 0, 0]
+        - [0, 1, 0, 0]
+        - [0, 0, 1, 0]
+        - [0, 0, 0, 1]
+  - sensor_id: ff000000000000000000000000000004
+    base_sensor_id: 3da6d03bd42e41a93dc941bd5fd9353d
+    T_B_S:
+      rows: 4
+      cols: 4
+      data:
+        - [1, 0, 0, 0]
+        - [0, 1, 0, 0]
+        - [0, 0, 1, 0]
+        - [0, 0, 0, 1]
+  - sensor_id: acbb23479caf7592b35518478a2fe08f
+    base_sensor_id: 3da6d03bd42e41a93dc941bd5fd9353d
+    T_B_S:
+      rows: 4
+      cols: 4
+      data:
+        - [1, 0, 0, 0]
+        - [0, 1, 0, 0]
+        - [0, 0, 1, 0]
+        - [0, 0, 0, 1]
+  - sensor_id: 3da6d03bd42e41a93dc941bd5fd9353d
+    base_sensor_id: 3da6d03bd42e41a93dc941bd5fd9353d
+    T_B_S:
+      rows: 4
+      cols: 4
+      data:
+        - [1, 0, 0, 0]
+        - [0, 1, 0, 0]
+        - [0, 0, 1, 0]
+        - [0, 0, 0, 1]
+  - sensor_id: 4af1bac2a7c5fad79f09e49e3b96d87c
+    base_sensor_id: 3da6d03bd42e41a93dc941bd5fd9353d
+    T_B_S:
+      rows: 4
+      cols: 4
+      data:
+        - [1, 0, 0, 0]
+        - [0, 1, 0, 0]
+        - [0, 0, 1, 0]
+        - [0, 0, 0, 1]
+  - sensor_id: bbf123479caf7592b35518478a2fe08d
+    base_sensor_id: 3da6d03bd42e41a93dc941bd5fd9353d
+    T_B_S:
+      rows: 4
+      cols: 4
+      data:
+        - [0.006609639848468629, -0.9999762249571927, 0.001965243352927244, -0.006950464990290158]
+        - [-0.9999773650294649, -0.00661209386905437, -0.001244846735961019, -0.006713481609220221]
+        - [0.001257811513201671, -0.001956970881110611, -0.9999972940839239, 0.04989346097032105]
+        - [0, 0, 0, 1]
+  - sensor_id: ff000000000000000000000000000001
+    base_sensor_id: 3da6d03bd42e41a93dc941bd5fd9353d
+    T_B_S:
+      rows: 4
+      cols: 4
+      data:
+        - [1, 0, 0, 0]
+        - [0, 1, 0, 0]
+        - [0, 0, 1, 0]
+        - [0, 0, 0, 1]
