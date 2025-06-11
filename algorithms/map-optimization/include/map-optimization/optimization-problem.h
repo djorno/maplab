@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include <ceres-error-terms/balm-voxhess.h>
 #include <ceres-error-terms/parameterization/pose-param-jpl.h>
 #include <ceres-error-terms/parameterization/quaternion-param-jpl.h>
 #include <ceres-error-terms/problem-information.h>
@@ -15,6 +16,7 @@
 #include <vi-map-helpers/mission-clustering-coobservation.h>
 #include <vi-map/vi-map.h>
 
+#include "ceres/evaluation_callback.h"
 #include "map-optimization/mission-cluster-gauge-fixes.h"
 #include "map-optimization/optimization-state-buffer.h"
 
@@ -53,6 +55,13 @@ class OptimizationProblem {
   }
   const vi_map::MissionIdSet& getMissionIds() const {
     return missions_ids_;
+  }
+  std::shared_ptr<ceres::EvaluationCallback> getEvaluationCallback() {
+    return evaluation_callback_;
+  }
+  void setEvaluationCallback(
+      std::shared_ptr<ceres::EvaluationCallback> callback_ptr) {
+    evaluation_callback_ = std::move(callback_ptr);
   }
 
   struct LocalParameterizations {
@@ -101,6 +110,12 @@ class OptimizationProblem {
 
   // Local parameterization that are used when adding cost terms.
   LocalParameterizations local_parameterizations_;
+
+  // The evaluation callback. This, if set, will be called before each
+  // iteration. Can be used to pre-compute residuals / jacobians for later use.
+  // For error terms to have access to the data computed by the evaluation
+  // callback, they share ownership of this object.
+  std::shared_ptr<ceres::EvaluationCallback> evaluation_callback_;
 };
 
 // Struct to hold the summaries and the final state of solver variables of the

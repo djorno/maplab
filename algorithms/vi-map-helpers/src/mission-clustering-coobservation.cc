@@ -7,7 +7,9 @@
 #include <maplab-common/accessors.h>
 #include <vi-map/vi-map.h>
 
+#include "map-resources/resource-common.h"
 #include "vi-map-helpers/vi-map-queries.h"
+#include "vi-map/unique-id.h"
 
 namespace vi_map_helpers {
 namespace {
@@ -173,6 +175,39 @@ bool has6DoFOdometryConstraintsInAllMissionsInCluster(
     vi_map.getAllEdgeIdsInMissionAlongGraph(
         mission_id, pose_graph::Edge::EdgeType::kOdometry, &edge_ids);
     if (edge_ids.empty()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool hasBALMConstraintsInAllMissionsInCluster(
+    const vi_map::VIMap& vi_map, const vi_map::MissionIdSet& mission_ids) {
+  CHECK(!mission_ids.empty());
+
+  static constexpr backend::ResourceType kBalmResourceTypes[] = {
+      static_cast<backend::ResourceType>(8),
+      static_cast<backend::ResourceType>(9),
+      static_cast<backend::ResourceType>(16),
+      static_cast<backend::ResourceType>(17),
+      static_cast<backend::ResourceType>(21)};
+
+  for (const vi_map::MissionId& mission_id : mission_ids) {
+    const auto& mission = vi_map.getMission(mission_id);
+
+    const bool mission_has_resource = std::any_of(
+        std::begin(kBalmResourceTypes), std::end(kBalmResourceTypes),
+        [&](backend::ResourceType resource_type) {
+          typedef std::unordered_map<
+              aslam::SensorId, backend::TemporalResourceIdBuffer>
+              SensorsToResourceMap;
+          const SensorsToResourceMap* sensor_id_to_res_id_map;
+          sensor_id_to_res_id_map =
+              mission.getAllSensorResourceIdsOfType(resource_type);
+          return sensor_id_to_res_id_map != nullptr;
+        });
+
+    if (!mission_has_resource) {
       return false;
     }
   }

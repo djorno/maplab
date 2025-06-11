@@ -9,6 +9,8 @@
 DEFINE_bool(
     ba_include_visual, true, "Whether or not to include visual error-terms.");
 DEFINE_bool(
+    ba_include_balm, false, "Whether or not to include BALM error-terms.");
+DEFINE_bool(
     ba_use_visual_outlier_rejection_solver, true,
     "Reject outlier landmarks during the solve?");
 DEFINE_string(
@@ -101,6 +103,9 @@ ViProblemOptions ViProblemOptions::initFromGFlags() {
   // Vertex constraints
   options.fix_vertices = FLAGS_ba_fix_vertices;
 
+  // BALM constraints
+  options.add_balm_constraints = FLAGS_ba_include_balm;
+
   // Inertial constraints
   options.add_inertial_constraints = FLAGS_ba_include_inertial;
   options.fix_gyro_bias = FLAGS_ba_fix_gyro_bias;
@@ -156,8 +161,19 @@ OptimizationProblem* constructOptimizationProblem(
     vi_map::VIMap* map) {
   CHECK(map);
   CHECK(options.isValid());
-
   OptimizationProblem* problem = new OptimizationProblem(map, mission_ids);
+
+  size_t num_balm_constraints_added = 0u;
+  if (options.add_balm_constraints) {
+    num_balm_constraints_added = addBALMTerms(problem);
+    LOG(INFO) << "Added " << num_balm_constraints_added << " BALM constraints.";
+    if (num_balm_constraints_added == 0u) {
+      LOG(WARNING)
+          << "WARNING: BALM constraints enabled, but none "
+          << "were found, adapting DoF settings of optimization problem...";
+    }
+  }
+
   size_t num_visual_constraints_added = 0u;
   if (options.add_visual_constraints) {
     num_visual_constraints_added = addLandmarkTerms(
@@ -176,6 +192,8 @@ OptimizationProblem* constructOptimizationProblem(
     num_inertial_constraints_added = addInertialTerms(
         options.fix_gyro_bias, options.fix_accel_bias, options.fix_velocity,
         options.gravity_magnitude, problem);
+    LOG(INFO) << "Added " << num_inertial_constraints_added
+              << " inertial constraints.";
     if (num_inertial_constraints_added == 0u) {
       LOG(WARNING)
           << "WARNING: Inertial constraints enabled, but none "
@@ -273,6 +291,10 @@ OptimizationProblem* constructOptimizationProblem(
         vi_map_helpers::has6DoFOdometryConstraintsInAllMissionsInCluster(
             *map, mission_cluster) &&
         (num_6dof_odometry_constraints_added > 0u);
+    const bool cluster_has_balm =
+        vi_map_helpers::hasBALMConstraintsInAllMissionsInCluster(
+            *map, mission_cluster) &&
+        (num_balm_constraints_added > 0u);
 
     // Note that if there are lc edges they always are within the cluster,
     // because otherwise the other mission would have been part of the cluster.
@@ -282,14 +304,15 @@ OptimizationProblem* constructOptimizationProblem(
 
     CHECK(
         cluster_has_inertial || cluster_has_visual ||
-        cluster_has_wheel_odometry || cluster_has_6dof_odometry)
+        cluster_has_wheel_odometry || cluster_has_6dof_odometry ||
+        cluster_has_balm)
         << "Either inertial, visual or wheel odometry constraints need to be "
            "available to form a stable graph.";
 
     // Determine observability of scale, global position and global orientation.
     const bool scale_is_observable =
         cluster_has_inertial || cluster_has_wheel_odometry ||
-        cluster_has_6dof_odometry ||
+        cluster_has_6dof_odometry || cluster_has_balm ||
         (cluster_has_visual && cluster_num_absolute_6dof_used > 1u);
 
     const bool global_position_is_observable =
