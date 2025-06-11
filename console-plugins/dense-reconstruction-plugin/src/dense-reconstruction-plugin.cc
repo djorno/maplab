@@ -1,20 +1,23 @@
+#include "dense-reconstruction/balm/bavoxel.h"
 #include "dense-reconstruction/dense-reconstruction-plugin.h"
+#include "dense-reconstruction/voxblox-params.h"
 
 #include <chrono>
 #include <cstring>
+#include <malloc.h>
 #include <string>
 #include <vector>
 
 #include <aslam/common/timer.h>
 #include <console-common/console.h>
 #include <dense-reconstruction/conversion-tools.h>
-// TODO(smauq): Fix undistortion in pmvs
-//#include <dense-reconstruction/pmvs-file-utils.h>
-//#include <dense-reconstruction/pmvs-interface.h>
+#include <dense-reconstruction/pmvs-file-utils.h>
+#include <dense-reconstruction/pmvs-interface.h>
 #include <dense-reconstruction/stereo-dense-reconstruction.h>
 #include <depth-integration/depth-integration.h>
 #include <gflags/gflags.h>
 #include <map-manager/map-manager.h>
+#include <maplab-common/conversions.h>
 #include <maplab-common/file-system-tools.h>
 #include <vi-map/unique-id.h>
 #include <vi-map/vi-map.h>
@@ -29,8 +32,6 @@
 #include <voxblox/mesh/mesh_integrator.h>
 #include <voxblox_ros/esdf_server.h>
 #include <voxblox_ros/mesh_vis.h>
-
-#include "dense-reconstruction/voxblox-params.h"
 
 DECLARE_string(map_mission_list);
 DECLARE_bool(overwrite);
@@ -68,7 +69,63 @@ DEFINE_int32(
     "RawDepthMap = 8, OptimizedDepthMap = 9, PointCloudXYZ = 16, "
     "PointCloudXYZRGBN = 17, kPointCloudXYZI = 21");
 
+DEFINE_double(
+    balm_kf_distance_threshold_m, 0.5,
+    "BALM distance threshold to add a new keyframe [m].");
+DEFINE_double(
+    balm_kf_rotation_threshold_deg, 10.0,
+    "BALM rotation threshold to add a new keyframe [deg].");
+DEFINE_double(
+    balm_kf_time_threshold_s, 1.0,
+    "BALM force a keyframe at fixed time intervals [s].");
+
+DEFINE_double(
+    balm_voxel_size, 1.0, "BALM voxel size to use to look for planes in.");
+DEFINE_uint32(
+    balm_max_layers, 3,
+    "BALM maximum number of subdividing of a voxel when looking for a plane.");
+DEFINE_uint32(
+    balm_min_plane_points, 15,
+    "BALM minimum number of points needed when looking for a plane.");
+DEFINE_double(
+    balm_max_eigen_value, 0.05,
+    "BALM maximum least significant eigen value, when looking for a plane in a "
+    "voxel. Smaller values will result in flatter planes, but will need better "
+    "initial poses.");
+
+DEFINE_double(
+    balm_vis_voxel_size, 0.2,
+    "Voxel size to use for visualization when publishing pointclouds from "
+    "BALM. This does not affect the accuracy of the optimization itself.");
+
 namespace dense_reconstruction {
+
+void publishMapFromBALM(
+    aslam::TransformationVector poses_G,
+    const std::vector<resources::PointCloud>& pointclouds_S,
+    const std::string& path_topic, const visualization::Color& path_color,
+    const std::string& cloud_topic) {
+  CHECK_EQ(poses_G.size(), pointclouds_S.size());
+
+  resources::PointCloud points_G;
+  Eigen::Matrix3Xd positions_G(3, poses_G.size());
+  for (size_t i = 0; i < poses_G.size(); ++i) {
+    resources::PointCloud voxelized_S;
+    pointclouds_S[i].downsampleVoxelized(
+        FLAGS_balm_vis_voxel_size, &voxelized_S);
+    points_G.appendTransformed(voxelized_S, poses_G[i]);
+    positions_G.col(i) = poses_G[i].getPosition();
+  }
+
+  sensor_msgs::PointCloud2 ros_points_G;
+  backend::convertPointCloudType(points_G, &ros_points_G);
+  ros_points_G.header.frame_id = FLAGS_tf_map_frame;
+  visualization::RVizVisualizationSink::publish(cloud_topic, ros_points_G);
+
+  visualization::publish3DPointsAsPointCloud(
+      positions_G, path_color, 1.0, FLAGS_tf_map_frame, path_topic);
+}
+
 bool parseMultipleMissionIds(
     const vi_map::VIMap& vi_map, vi_map::MissionIdList* mission_ids) {
   CHECK_NOTNULL(mission_ids);
@@ -136,8 +193,7 @@ common::CommandStatus exportTsdfMeshToFile(
 DenseReconstructionPlugin::DenseReconstructionPlugin(
     common::Console* console, visualization::ViwlsGraphRvizPlotter* plotter)
     : common::ConsolePluginBaseWithPlotter(console, plotter) {
-  // TODO(smauq): Fix undistortion in pmvs
-  /*addCommand(
+  addCommand(
       {"export_timestamped_images"},
       [this]() -> int {
         // Select map.
@@ -199,7 +255,7 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
       },
       "Export the map and the associated image resources to the PMVS/CMVS "
       "input format, such that we can reconstruct the whole map.",
-      common::Processing::Sync);*/
+      common::Processing::Sync);
 
   addCommand(
       {"stereo_dense_reconstruction", "stereo_dense", "sdr"},
@@ -688,6 +744,150 @@ DenseReconstructionPlugin::DenseReconstructionPlugin(
       "Compute mesh of the Voxblox TSDF grid resource associated with "
       "the selected missions.",
       common::Processing::Sync);
+
+  addCommand(
+      {"bundle_adjust_lidar_map", "balm"},
+      [this]() -> int {
+        // Select map.
+        std::string selected_map_key;
+        if (!getSelectedMapKeyIfSet(&selected_map_key)) {
+          return common::kStupidUserError;
+        }
+        vi_map::VIMapManager map_manager;
+        vi_map::VIMapManager::MapWriteAccess map =
+            map_manager.getMapWriteAccess(selected_map_key);
+
+        vi_map::MissionIdList mission_ids;
+        map->getAllMissionIdsSortedByTimestamp(&mission_ids);
+
+        // Setting up BALM variables
+        aslam::TransformationVector poses_G_S;
+        std::vector<resources::PointCloud> pointclouds;
+
+        // Keyframe the point clouds, otherwise the memory blows up.
+        // Base logic on motion and at fixed time intervals otherwise.
+        int64_t time_last_kf;
+        vi_map::MissionId last_mission_id;
+        last_mission_id.setInvalid();
+
+        // Accumulate point cloud into BALM format. Play with vi_map cache size
+        // to facilitate multiple iterations over the same resources as we do
+        // that for the undistortion.
+        const size_t original_cache_size = map->getMaxCacheSize();
+        map->setMaxCacheSize(1);
+        depth_integration::IntegrationFunctionPointCloudMaplabWithExtras
+            integration_function = [&map, &poses_G_S, &time_last_kf,
+                                    &last_mission_id, &pointclouds](
+                                       const aslam::Transformation& T_G_S,
+                                       const int64_t timestamp_ns,
+                                       const vi_map::MissionId& mission_id,
+                                       const size_t /*counter*/,
+                                       const resources::PointCloud& points_S) {
+              poses_G_S.emplace_back(T_G_S);
+              time_last_kf = timestamp_ns;
+              last_mission_id = mission_id;
+              pointclouds.emplace_back(points_S);
+
+              // Increase cache size by one
+              map->setMaxCacheSize(map->getMaxCacheSize() + 1u);
+            };
+
+        const int64_t time_threshold_ns =
+            FLAGS_balm_kf_time_threshold_s * kSecondsToNanoSeconds;
+        const double distance_threshold = FLAGS_balm_kf_distance_threshold_m;
+        const double rotation_threshold =
+            FLAGS_balm_kf_rotation_threshold_deg * kDegToRad;
+
+        depth_integration::ResourceSelectionFunction selection_function =
+            [&poses_G_S, &time_last_kf, &last_mission_id, &time_threshold_ns,
+             &distance_threshold, &rotation_threshold](
+                const aslam::Transformation& T_G_S, const int64_t timestamp_ns,
+                const vi_map::MissionId& mission_id, const size_t /*counter*/) {
+              // We started another mission, so insert a keyframe and
+              // re-initialize the other keyframe metrics we keep track of.
+              if (!last_mission_id.isValid() || mission_id != last_mission_id) {
+                return true;
+              }
+
+              // Keyframe if enough time has elapsed since the last keyframe.
+              if (timestamp_ns - time_last_kf >= time_threshold_ns) {
+                return true;
+              }
+
+              // Finally keyframe based on travelled distance or rotation.
+              const aslam::Transformation& T_G_Skf = poses_G_S.back();
+              const aslam::Transformation T_Skf_S = T_G_Skf.inverse() * T_G_S;
+              const double distance_to_last_kf_m = T_Skf_S.getPosition().norm();
+              const double rotation_to_last_kf_rad =
+                  aslam::AngleAxis(T_Skf_S.getRotation()).angle();
+              if (distance_to_last_kf_m > distance_threshold ||
+                  rotation_to_last_kf_rad > rotation_threshold) {
+                return true;
+              }
+
+              return false;
+            };
+
+        const backend::ResourceType input_resource_type =
+            static_cast<backend::ResourceType>(
+                FLAGS_dense_depth_resource_input_type);
+
+        depth_integration::integrateAllDepthResourcesOfType(
+            mission_ids, input_resource_type,
+            FLAGS_dense_depth_map_reprojection_use_undistorted_camera, *map,
+            integration_function, selection_function);
+
+        win_size = poses_G_S.size();
+        LOG(INFO) << "Selected a total of " << poses_G_S.size()
+                  << " LiDAR scans as keyframes.";
+
+        publishMapFromBALM(
+            poses_G_S, pointclouds, "balm_path_before",
+            visualization::kCommonYellow, "balm_map_before");
+
+        SurfaceMap surface_map;
+        for (size_t i = 0; i < win_size; ++i) {
+          cut_voxel(surface_map, pointclouds[i], poses_G_S[i], i, win_size);
+        }
+
+        VoxHess voxhess;
+        resources::PointCloud planes_G;
+        for (auto iter = surface_map.begin(); iter != surface_map.end();) {
+          if (iter->second->recut(&voxhess, &planes_G)) {
+            ++iter;
+          } else {
+            delete iter->second;
+            iter = surface_map.erase(iter);
+          }
+        }
+
+        // Publish planes computed by BALM to rviz.
+        sensor_msgs::PointCloud2 ros_planes_G;
+        backend::convertPointCloudType(planes_G, &ros_planes_G);
+        ros_planes_G.header.frame_id = FLAGS_tf_map_frame;
+        visualization::RVizVisualizationSink::publish(
+            "balm_planes", ros_planes_G);
+
+        // Optimize the planes together
+        BALM2 opt_lsv;
+        opt_lsv.damping_iter(poses_G_S, voxhess);
+
+
+        // Free up the memory
+        for (auto iter = surface_map.begin(); iter != surface_map.end();
+             ++iter) {
+          delete iter->second;
+        }
+        surface_map = SurfaceMap();
+        malloc_trim(0);
+
+        publishMapFromBALM(
+            poses_G_S, pointclouds, "balm_path_after",
+            visualization::kCommonGreen, "balm_map_after");
+
+        return common::kSuccess;
+      },
+      "Use BALM for point cloud alignment.", common::Processing::Sync);
 }
 
 }  // namespace dense_reconstruction

@@ -1,5 +1,8 @@
 #include "maplab-server-node/maplab-server-node.h"
 
+#if __GNUC__ > 5
+#include <dense-mapping/dense-mapping.h>
+#endif
 #include <depth-integration/depth-integration.h>
 
 #include <aslam/common/timer.h>
@@ -750,6 +753,35 @@ void MaplabServerNode::runOneIterationOfMapMergingAlgorithms() {
     }
   }
 
+  // Lidar local constraints/loop closure
+  ///////////////////////////////////////
+  // Searches for nearby dense map data (e.g. lidar scans) within and across
+  // missions and uses point cloud registration algorithms to derive relative
+  // constraints. These are added as loop closures between vertices. When
+  // iteratively executing this command, as is done here, the candidate pairs
+  // that already posess a valid (switch variable is healthy) loop closure will
+  // not be computed again.
+#if __GNUC__ > 5
+  if (FLAGS_maplab_server_enable_lidar_loop_closure) {
+    vi_map::VIMapManager::MapWriteAccess map =
+        map_manager_.getMapWriteAccess(kMergedMapKey);
+    vi_map::MissionIdList mission_ids;
+    map->getAllMissionIds(&mission_ids);
+    {
+      std::lock_guard<std::mutex> merge_status_lock(
+          running_merging_process_mutex_);
+      running_merging_process_ = "lidar loop closure";
+    }
+
+    const dense_mapping::Config config = dense_mapping::Config::fromGflags();
+    if (!dense_mapping::addDenseMappingConstraintsToMap(
+            config, mission_ids, map.get())) {
+      LOG(ERROR) << "[MaplabServerNode] Adding dense mapping constraints "
+                 << "encountered an error!";
+    }
+  }
+#endif
+
   // Full optimization
   ////////////////////
   // This does not scale, and never will, so it is important that # we limit
@@ -1268,6 +1300,27 @@ void MaplabServerNode::runSubmapProcessing(
     vi_map_helpers::evaluateLandmarkQuality(missions_to_process, map.get());
   }
 
+  // Lidar local constraints/loop closure
+  ///////////////////////////////////////
+  // Searches for nearby dense map data (e.g. lidar scans) within the submap
+  // mission and uses point cloud registration algorithms to derive relative
+  // constraints. These are added as loop closures between vertices.
+#if __GNUC__ > 5
+  if (FLAGS_maplab_server_enable_lidar_loop_closure) {
+    {
+      std::lock_guard<std::mutex> status_lock(running_submap_process_mutex_);
+      running_submap_process_[submap_process.map_hash] = "lidar loop closure";
+    }
+
+    const dense_mapping::Config config = dense_mapping::Config::fromGflags();
+    if (!dense_mapping::addDenseMappingConstraintsToMap(
+            config, missions_to_process, map.get())) {
+      LOG(ERROR) << "[MaplabServerNode] Adding dense mapping constraints "
+                 << "encountered an error!";
+    }
+  }
+#endif
+
   // Submap Optimization
   //////////////////////
   {
@@ -1583,10 +1636,10 @@ bool MaplabServerNode::getDenseMapInRange(
   // Select within a radius.
   depth_integration::ResourceSelectionFunction get_resources_in_radius =
       [&radius_m, &center_G](
-          const int64_t /*timestamp_ns*/,
-          const aslam::Transformation& T_G_S) -> bool {
-    return (T_G_S.getPosition() - center_G).norm() < radius_m;
-  };
+          const aslam::Transformation& T_G_S, const int64_t /*timestamp_ns*/,
+          const vi_map::MissionId& /*mission_id*/, const size_t /*counter*/) {
+        return (T_G_S.getPosition() - center_G).norm() < radius_m;
+      };
 
   vi_map::VIMapManager::MapReadAccess map =
       map_manager_.getMapReadAccess(kMergedMapKey);

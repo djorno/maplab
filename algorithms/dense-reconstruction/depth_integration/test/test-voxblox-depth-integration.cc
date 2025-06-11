@@ -27,12 +27,12 @@ class VoxbloxDepthIntegrationTest : public ::testing::Test {
  protected:
   virtual void SetUp() {
     depth_map_openni_ = cv::imread(
-        kTestDataBaseFolder + "/depth_map_OpenNI.pgm", cv::IMREAD_UNCHANGED);
+        kTestDataBaseFolder + "/depth_map_OpenNI.pgm", CV_LOAD_IMAGE_UNCHANGED);
     CHECK_EQ(CV_MAT_TYPE(depth_map_openni_.type()), CV_16U);
 
     image_ = cv::imread(
         kTestDataBaseFolder + "/intensities_depth_map.pgm",
-        cv::IMREAD_GRAYSCALE);
+        CV_LOAD_IMAGE_GRAYSCALE);
     CHECK_EQ(CV_MAT_TYPE(image_.type()), CV_8UC1);
     CHECK_GT(image_.rows, 0);
     CHECK_GT(image_.cols, 0);
@@ -86,9 +86,11 @@ TEST_F(VoxbloxDepthIntegrationTest, TestIntegrateDepthMap) {
         integrator->integratePointCloud(T_G_C, points, colors);
       };
 
+  vi_map::MissionId mission_id;
+  aslam::generateId(&mission_id);
   depth_integration::integrateDepthMap(
-      0 /*timestamp*/, T_G_C_, depth_map_openni_, image_,
-      *camera_without_distortion_, integration_function);
+      T_G_C_, 0 /*timestamp*/, mission_id, 0 /*counter*/, depth_map_openni_,
+      image_, *camera_without_distortion_, integration_function);
 
   EXPECT_EQ(tsdf_map.getTsdfLayer().getNumberOfAllocatedBlocks(), 20u);
   EXPECT_NEAR(tsdf_map.getTsdfLayer().getMemorySize(), 984040u, 10u);

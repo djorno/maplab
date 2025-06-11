@@ -23,28 +23,10 @@ DEFINE_bool(
     "Store the point clouds associated with a lidar sensor to the map resource "
     "folder.");
 
-DEFINE_string(
-    map_builder_save_point_clouds_as_range_image_camera_id, "",
-    "Camera id of the depth camera used to convert lidar point clouds to range "
-    "images "
-    "maps.");
-
-DEFINE_bool(
-    map_builder_save_point_clouds_as_range_image_including_intensity_image,
-    true,
-    "If enabled, the color or intensity information in the point cloud is used "
-    "to create a corresponding intensity/color for each point cloud in "
-    "addition to the range image.");
-
 DEFINE_bool(
     map_builder_save_point_cloud_maps_as_resources, true,
     "Store the point cloud (sub-)maps associated with an external source to "
     "the map resource folder.");
-
-DEFINE_bool(
-    map_builder_visualize_lidar_depth_maps_in_ocv_window, false,
-    "If enabled, opencv windows with the result of the lidar scan to lidar "
-    "depth map conversion will be opened.");
 
 namespace online_map_builders {
 
@@ -86,61 +68,6 @@ StreamMapBuilder::StreamMapBuilder(
   aslam::SensorIdSet sensor_ids;
   sensor_manager.getAllSensorIds(&sensor_ids);
   map_->associateMissionSensors(sensor_ids, mission_id_);
-
-  // Retrieve depth camera id from flags to later convert lidar point clouds to
-  // depth maps.
-  if (FLAGS_map_builder_save_point_clouds_as_resources &&
-      !FLAGS_map_builder_save_point_clouds_as_range_image_camera_id.empty()) {
-    lidar_depth_camera_id_.fromHexString(
-        FLAGS_map_builder_save_point_clouds_as_range_image_camera_id);
-    if (!lidar_depth_camera_id_.isValid()) {
-      LOG(ERROR)
-          << "[StreamMapBuilder] The depth camera id ("
-          << FLAGS_map_builder_save_point_clouds_as_range_image_camera_id
-          << ") provided to project the lidar point clouds into depth maps is "
-          << "not valid! Point clouds will not be projected into depth maps.";
-    } else if (!map_->getSensorManager().hasSensor(lidar_depth_camera_id_)) {
-      LOG(ERROR)
-          << "[StreamMapBuilder] The depth camera id ("
-          << lidar_depth_camera_id_
-          << ") provided to project the lidar point clouds into depth maps is "
-          << "not in the sensor manager! Point clouds will not be projected "
-             "into depth maps.";
-    } else {
-      VLOG(1) << "[StreamMapBuilder] Using depth camera "
-              << lidar_depth_camera_id_
-              << " to project lidar scans into depth maps.";
-
-      aslam::NCamera::Ptr lidar_depth_camera_sensor_ncamera_ptr =
-          map_->getSensorManager().getSensorPtr<aslam::NCamera>(
-              lidar_depth_camera_id_);
-      CHECK(lidar_depth_camera_sensor_ncamera_ptr);
-      CHECK_EQ(lidar_depth_camera_sensor_ncamera_ptr->numCameras(), 1u);
-      lidar_depth_camera_sensor_ =
-          lidar_depth_camera_sensor_ncamera_ptr->getCameraShared(0u);
-      CHECK(lidar_depth_camera_sensor_);
-      const aslam::Transformation& T_C_lidar_Cn_lidar =
-          lidar_depth_camera_sensor_ncamera_ptr->get_T_C_B(0u);
-
-      const aslam::Transformation& T_B_Cn_lidar =
-          map_->getSensorManager().getSensor_T_B_S(lidar_depth_camera_id_);
-      CHECK(map_->getMission(mission_id_).hasLidar())
-          << "[StreamMapBuilder] Mission " << mission_id_
-          << " does not have a lidar sensor and therefore cannot attach lidar "
-          << "measurements!";
-      const aslam::SensorId& lidar_sensor_id =
-          map_->getMission(mission_id_).getLidarId();
-      CHECK(map_->getSensorManager().hasSensor(lidar_sensor_id))
-          << "[StreamMapBuilder] Mission " << mission_id_
-          << " has a lidar id associated (" << lidar_sensor_id
-          << ") but this lidar does not exist in the sensor manager!";
-
-      const aslam::Transformation& T_B_S_lidar =
-          map_->getSensorManager().getSensor_T_B_S(lidar_sensor_id);
-      T_C_lidar_S_lidar_ =
-          T_C_lidar_Cn_lidar * T_B_Cn_lidar.inverse() * T_B_S_lidar;
-    }
-  }
 
   // Initialize wheel odometry origin frame tracking
   T_Ow_Btm1_.setIdentity();
@@ -235,6 +162,12 @@ void StreamMapBuilder::apply(
         update.imu_measurements);
   }
   notifyBuffers();
+}
+
+void StreamMapBuilder::finishMapping() {
+  LOG(INFO) << "[StreamMapBuilder] Mapping finished callbacks...";
+  // Dump lidar point cloud buffer
+  notifyLidarMeasurementBuffer(/*dump_remaining_points=*/true);
 }
 
 void StreamMapBuilder::addRootViwlsVertex(
@@ -538,6 +471,7 @@ void StreamMapBuilder::notifyBuffers() {
   notifyLoopClosureConstraintBuffer();
   notifyWheelOdometryConstraintBuffer();
   notifyExternalFeaturesMeasurementBuffer();
+  notifyLidarMeasurementBuffer(/*dump_remaining_points=*/false);
 }
 
 void StreamMapBuilder::notifyAbsolute6DoFConstraintBuffer() {
@@ -1214,6 +1148,112 @@ void StreamMapBuilder::notifyExternalFeaturesMeasurementBuffer() {
     // Make info message more verbose
     VLOG(3) << "[StreamMapBuilder] Attached a new external features "
             << "measurement for vertex " << closest_vertex_id;
+  }
+}
+
+void StreamMapBuilder::notifyLidarMeasurementBuffer(
+    const bool dump_remaining_points) {
+  if (map_->numVertices() < 1u || lidar_point_cloud_buffer_.empty()) {
+    return;
+  }
+  vi_map::VIMission& mission = map_->getMission(mission_id_);
+
+  for (auto& buffer_with_sensor_id : lidar_point_cloud_buffer_) {
+    const auto& lidar_sensor_id = buffer_with_sensor_id.first;
+    auto& point_cloud_buffer = buffer_with_sensor_id.second;
+
+    CHECK(std::is_sorted(
+        point_cloud_buffer.times_ns.begin(), point_cloud_buffer.times_ns.end()))
+        << "[StreamMapBuilder] The lidar point cloud buffer is not sorted!";
+
+    const backend::ResourceType point_cloud_type =
+        backend::getResourceTypeForPointCloud(point_cloud_buffer);
+
+    pose_graph::VertexId current_vertex_id;
+    pose_graph::VertexId next_vertex_id;
+
+    const auto initial_min_lidar_time = point_cloud_buffer.times_ns.front();
+
+    // Get the vertex with the timestamp closest to the min lidar time.
+    uint64_t delta_ns = 0;
+    // NOTE(gtonetti): We always want to include the lidar measurements, so we
+    // set the max interpolation time to the maximum possible value
+    // (tolerance_ns is cast to int64_t)
+    constexpr uint64_t kMaxInterpolationTimeNs =
+        static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+
+    if (!queries_.getClosestVertexIdByTimestamp(
+            initial_min_lidar_time, kMaxInterpolationTimeNs, &current_vertex_id,
+            &delta_ns)) {
+      LOG(FATAL)
+          << "[StreamMapBuilder] Could not find a vertex for the initial "
+             "lidar measurement!";
+    }
+
+    if (!map_->getNextVertex(current_vertex_id, &next_vertex_id)) {
+      CHECK(current_vertex_id == last_vertex_);
+    }
+    while (current_vertex_id != last_vertex_ && point_cloud_buffer.size() > 0) {
+      const auto current_vertex_ts =
+          map_->getVertex(current_vertex_id).getMinTimestampNanoseconds();
+      const auto next_vertex_ts =
+          map_->getVertex(next_vertex_id).getMinTimestampNanoseconds();
+      const auto midpoint_time =
+          current_vertex_ts + (next_vertex_ts - current_vertex_ts) / 2;
+
+      const auto min_lidar_time = point_cloud_buffer.times_ns.front();
+      const auto max_lidar_time = point_cloud_buffer.times_ns.back();
+
+      CHECK(midpoint_time >= min_lidar_time)
+          << "[StreamMapBuilder] Something went wrong! the the min_lidar_time "
+             "should always be closer to the current vertex than than the next "
+             "vertex!";
+
+      if (midpoint_time > max_lidar_time) {
+        // we should wait for the next lidar measurement to arrive before
+        // processing this vertex
+        break;
+      }
+
+      resources::PointCloud points_for_current_vertex =
+          point_cloud_buffer.splitAtTime(midpoint_time, /*is_sorted=*/true);
+      CHECK(points_for_current_vertex.times_ns.back() <= midpoint_time);
+      CHECK(point_cloud_buffer.times_ns.front() > midpoint_time);
+      CHECK(point_cloud_buffer.size() > 0)
+          << "[StreamMapBuilder] Split did not leave any points in the "
+             "buffer! "
+             "This is impossible!";
+
+      const auto num_points_split = points_for_current_vertex.size();
+
+      // Associate the split points with the current vertex.
+      CHECK(!map_->hasSensorResource(
+          mission, point_cloud_type, lidar_sensor_id, current_vertex_ts))
+          << "[StreamMapBuilder] There is already a point cloud resource at "
+             "the current vertex timestamp!";
+
+      // shift timestamps to the current vertex timestamp
+      points_for_current_vertex.shiftTimestamps(current_vertex_ts);
+      map_->addSensorResource(
+          point_cloud_type, lidar_sensor_id, current_vertex_ts,
+          points_for_current_vertex, &mission);
+      VLOG(3) << "[StreamMapBuilder] Associated " << num_points_split
+              << " points with vertex " << current_vertex_id << " (ts "
+              << current_vertex_ts << ")";
+      current_vertex_id = next_vertex_id;
+      map_->getNextVertex(current_vertex_id, &next_vertex_id);
+    }
+    if (dump_remaining_points) {
+      VLOG(3) << "[StreamMapBuilder] Dumping remaining points "
+              << point_cloud_buffer.size() << " into current "
+              << "vertex " << current_vertex_id;
+      // Dump the remaining points into the current vertex
+      map_->addSensorResource(
+          point_cloud_type, lidar_sensor_id,
+          map_->getVertex(current_vertex_id).getMinTimestampNanoseconds(),
+          point_cloud_buffer, &mission);
+      point_cloud_buffer.clear();
+    }
   }
 }
 

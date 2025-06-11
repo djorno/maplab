@@ -62,6 +62,10 @@ bool VIMapOptimizer::optimize(
   map_optimization::addCallbacksToSolverOptions(
       callbacks, &solver_options_with_callbacks);
 
+  map_optimization::addEvaluationCallbackToSolverOptions(
+      optimization_problem->getEvaluationCallback(),
+      &solver_options_with_callbacks);
+
   if (options.enable_visual_outlier_rejection) {
     map_optimization::solveWithOutlierRejection(
         solver_options_with_callbacks, options.visual_outlier_rejection_options,

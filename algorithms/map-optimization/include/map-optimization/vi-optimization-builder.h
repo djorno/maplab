@@ -1,6 +1,7 @@
 #ifndef MAP_OPTIMIZATION_VI_OPTIMIZATION_BUILDER_H_
 #define MAP_OPTIMIZATION_VI_OPTIMIZATION_BUILDER_H_
 
+#include <ceres-error-terms/balm-voxhess.h>
 #include <maplab-common/gravity-provider.h>
 #include <vi-map-helpers/vi-map-queries.h>
 #include <vi-map/vi-map.h>
@@ -50,6 +51,9 @@ struct ViProblemOptions {
   bool add_absolute_pose_constraints;
   bool fix_absolute_pose_sensor_extrinsics;
   bool fix_baseframes;
+
+  // BALM constraints
+  bool add_balm_constraints;
 
   bool add_loop_closure_edges;
 
